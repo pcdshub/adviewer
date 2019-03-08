@@ -1,0 +1,11 @@
+[run]
+source =
+    adviewer
+[report]
+omit =
+    #versioning
+    .*version.*
+    *_version.py
+    #tests
+    *test*
+    adviewer/tests/*
