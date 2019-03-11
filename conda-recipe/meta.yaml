@@ -1,0 +1,32 @@
+
+{% set data = load_setup_py_data() %}
+
+
+package:
+    name    : adviewer
+
+    version : {{ data.get('version') }}
+
+
+source:
+    path: ..
+
+requirements:
+    build:
+      - python
+      - setuptools
+
+    run:
+      - python
+
+test:
+    imports:
+      - adviewer
+
+    requires: 
+      - pytest
+
+about:
+  home: https://github.com/pcdshub/adviewer
+  license: SLAC Open License
+  summary: A short description of the project.
