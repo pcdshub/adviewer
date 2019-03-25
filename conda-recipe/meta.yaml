@@ -18,6 +18,11 @@ requirements:
 
     run:
       - python
+      - networkx
+      - ophyd
+      - typhon
+      - qtpy
+      - qt
 
 test:
     imports:

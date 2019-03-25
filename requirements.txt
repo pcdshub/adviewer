@@ -1,4 +1,7 @@
-awscli
+git+https://github.com/nsls-ii/ophyd
+networkx
+qtpy
+typhon
 coloredlogs
 coverage
 doctr
