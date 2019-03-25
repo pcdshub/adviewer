@@ -21,7 +21,7 @@ sys.path.insert(0,module_path)
 # -- Project information -----------------------------------------------------
 
 project = 'adviewer'
-copyright = '2018, SLAC National Accelerator Laboratory'
+copyright = '2019, SLAC National Accelerator Laboratory'
 author = 'SLAC National Accelerator Laboratory'
 
 # The short X.Y version
