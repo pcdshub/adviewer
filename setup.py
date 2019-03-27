@@ -35,7 +35,9 @@ git_requirements = [r for r in requirements if r.startswith('git+')]
 if git_requirements:
     print('User must install the following packages manually:')
     print()
-    print("\n".join(f'* {r}' for r in git_requirements))
+    for req in git_requirements:
+        requirements.remove(req)
+        print('* {}'.format(req))
     print()
 
 
