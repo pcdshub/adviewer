@@ -61,7 +61,7 @@ install:
   - source activate test-environment
 
   # Install additional development requirements
-  - pip install -Ur dev-requirements.txt
+  - pip install -U -r dev-requirements.txt -r requirements.txt
   # Install the package
   - pip install -e .
 
