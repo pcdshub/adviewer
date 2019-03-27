@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 class PortTreeWidget(QtWidgets.QTreeWidget):
     'Tree representation of AreaDetector port graph'
+    port_selected = QtCore.Signal(str)
+
     def __init__(self, monitor, parent=None):
         super().__init__(parent=parent)
         self.monitor = monitor
@@ -23,6 +25,11 @@ class PortTreeWidget(QtWidgets.QTreeWidget):
         self.setDragDropMode(self.InternalMove)
         self.monitor.update.connect(self._ports_updated)
         self.headerItem().setHidden(True)
+
+        def item_changed(current, previous):
+            self.port_selected.emit(str(current.text(0)))
+
+        self.currentItemChanged.connect(item_changed)
 
     def dropEvent(self, ev):
         dragged_to = self.itemAt(ev.pos())
@@ -296,7 +303,7 @@ class PortGraphFlowchart(QtWidgets.QWidget):
         self.layout.addWidget(self.view)
         self.setLayout(self.layout)
 
-        self._port_nodes = {}
+        self._nodes = {}
         self._edges = set()
         self._auto_position = True
 
@@ -320,6 +327,11 @@ class PortGraphFlowchart(QtWidgets.QWidget):
             raise_to_operator(ex)
 
     @property
+    def nodes(self):
+        'Nodes in the scene'
+        return dict(self._nodes)
+
+    @property
     def edges(self):
         'Set of (src, dest) ports that make up the AreaDetector port graph'
         return self.monitor.edges
@@ -330,8 +342,8 @@ class PortGraphFlowchart(QtWidgets.QWidget):
 
         for src, dest in edges_removed:
             try:
-                src_info = self._port_nodes[src]
-                dest_info = self._port_nodes[dest]
+                src_info = self._nodes[src]
+                dest_info = self._nodes[dest]
             except KeyError:
                 logger.debug('Edge removed that did not connect a known port, '
                              'likely in error: %s -> %s', src, dest)
@@ -350,20 +362,20 @@ class PortGraphFlowchart(QtWidgets.QWidget):
             self._edges.remove((src, dest))
 
         for port in ports_removed:
-            node = self._port_nodes.pop(port)
+            node = self._nodes.pop(port)
             self.scene.remove_node(node)
 
         for port in ports_added:
             plugin = self.port_map[port]
-            self._port_nodes[port] = dict(node=self.add_port(port, plugin),
-                                          plugin=plugin,
-                                          connections={},
-                                          )
+            self._nodes[port] = dict(node=self.add_port(port, plugin),
+                                     plugin=plugin,
+                                     connections={},
+                                     )
 
         for src, dest in edges_added:
             try:
-                src_node = self._port_nodes[src]['node']
-                dest_node = self._port_nodes[dest]['node']
+                src_node = self._nodes[src]['node']
+                dest_node = self._nodes[dest]['node']
             except KeyError:
                 # Scenarios:
                 #  1. Invalid port name used
@@ -384,8 +396,8 @@ class PortGraphFlowchart(QtWidgets.QWidget):
                     logger.exception('Failed to connect terminals %s -> %s',
                                      src, dest)
                 else:
-                    self._port_nodes[src]['connections'][dest] = connection
-                    self._port_nodes[dest]['connections'][src] = connection
+                    self._nodes[src]['connections'][dest] = connection
+                    self._nodes[dest]['connections'][src] = connection
 
         if self._auto_position:
             positions = utils.position_nodes(
@@ -394,7 +406,7 @@ class PortGraphFlowchart(QtWidgets.QWidget):
                 y_spacing=100.0,
             )
             for port, (px, py) in positions.items():
-                node = self._port_nodes[port]['node']
+                node = self._nodes[port]['node']
                 node.graphics_object.setPos(QtCore.QPointF(px, py))
 
         self.flowchart_updated.emit()
@@ -435,7 +447,18 @@ class PortGraphWindow(QtWidgets.QMainWindow):
 
         self.chart.view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.chart.view.customContextMenuRequested.connect(self._user_context_menu)
+        self.tree.port_selected.connect(self._tree_port_selected)
         threading.Thread(target=self._startup).start()
+
+    def _tree_port_selected(self, port_name):
+        try:
+            node = self.chart.nodes[port_name]['node']
+        except KeyError:
+            return
+
+        self.chart.view.centerOn(node.graphics_object)
+        self.chart.scene.clearSelection()
+        self._user_node_hovered(node, pos=None)
 
     def _user_context_menu(self, pos):
         menu = self.createPopupMenu()
