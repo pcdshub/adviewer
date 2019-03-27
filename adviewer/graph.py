@@ -1,15 +1,11 @@
 import logging
 import threading
-import types
 
-import qtpynodeeditor
-import pyqtgraph.widgets as qtg_widgets
-
-from qtpy import QtWidgets, QtCore, QtGui
+from qtpy import QtWidgets, QtCore
 
 from ophyd import CamBase
-
-from typhon.utils import TyphonBase, raise_to_operator
+import qtpynodeeditor
+from typhon.utils import raise_to_operator
 
 from . import utils
 from . import data_model
@@ -26,6 +22,7 @@ class PortTreeWidget(QtWidgets.QTreeWidget):
         self.setDragEnabled(True)
         self.setDragDropMode(self.InternalMove)
         self.monitor.update.connect(self._ports_updated)
+        self.headerItem().setHidden(True)
 
     def dropEvent(self, ev):
         dragged_to = self.itemAt(ev.pos())
@@ -290,10 +287,9 @@ class PortGraphFlowchart(QtWidgets.QWidget):
         self.scene.allow_node_deletion = False
         self.scene.connection_created.connect(self._user_connected_nodes)
         self.scene.connection_deleted.connect(self._user_deleted_connection)
-        self.scene.node_hovered.connect(self._user_node_hovered)
 
         self.view = qtpynodeeditor.FlowView(self.scene)
-        self.view.setWindowTitle(self.detector.name)
+        self.view.setMinimumSize(400, 400)
 
         self.layout = QtWidgets.QVBoxLayout()
         self.dock = QtWidgets.QDockWidget()
@@ -303,11 +299,6 @@ class PortGraphFlowchart(QtWidgets.QWidget):
         self._port_nodes = {}
         self._edges = set()
         self._auto_position = True
-
-    def _user_node_hovered(self, node, pos):
-        # print('hover', node, pos)
-        print(data_model.summarize_node(
-            node, port_information=self.monitor.port_information))
 
     def _user_deleted_connection(self, conn):
         src_node, dest_node = conn.nodes
@@ -350,12 +341,10 @@ class PortGraphFlowchart(QtWidgets.QWidget):
             dest_node = dest_info['node']
 
             # TODO keeping track of connections like this is less than ideal...
-            try:
-                conn = src_info['connections'].pop(dest_node)
-                del dest_info['connections'][src_node]
-            except KeyError:
-                ...
-            else:
+            conn = src_info['connections'].pop(dest_node, None)
+            dest_info['connections'].pop(src_node, None)
+
+            if conn is not None:
                 self.scene.delete_connection(conn)
 
             self._edges.remove((src, dest))
@@ -422,18 +411,52 @@ class PortGraphWindow(QtWidgets.QMainWindow):
     def __init__(self, detector, *, parent=None):
         super().__init__(parent=parent)
 
+        self.detector = detector
+        self.setWindowTitle(f'adviewer - {self.detector.name}')
+
         self.monitor = PortGraphMonitor(detector, parent=self)
         self.chart = PortGraphFlowchart(self.monitor)
         self.tree = PortTreeWidget(self.monitor)
-        self.chart.flowchart_updated.connect(self.tree.update)
+        self.info_label = QtWidgets.QLabel()
 
         self.setCentralWidget(self.chart.view)
 
         self.tree_dock = QtWidgets.QDockWidget('Port &Tree')
         self.tree_dock.setWidget(self.tree)
 
+        self.info_dock = QtWidgets.QDockWidget('Port &Info')
+        self.info_dock.setWidget(self.info_label)
+
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.tree_dock)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.info_dock)
+
+        self.chart.scene.node_hovered.connect(self._user_node_hovered)
+        self.chart.flowchart_updated.connect(self.tree.update)
+
+        self.chart.view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.chart.view.customContextMenuRequested.connect(self._user_context_menu)
         threading.Thread(target=self._startup).start()
+
+    def _user_context_menu(self, pos):
+        menu = self.createPopupMenu()
+        menu.exec_(self.chart.view.mapToGlobal(pos))
+
+    def _user_node_hovered(self, node, pos):
+        info = data_model.summarize_node(
+            node, port_information=self.monitor.port_information)
+        info_text = [node.data.port_name]
+        for category, info in info.items():
+            info_text.append(f'<b>{category}</b>')
+            for sub_category, item in info.items():
+                prefix = f'- {sub_category}: '
+                if isinstance(item, list):
+                    info_text.append(
+                        '{} {}'.format(prefix,
+                                       ', '.join(str(s) for s in item)))
+                else:
+                    info_text.append(f'{prefix} {item}')
+
+        self.info_label.setText('<br>'.join(str(s) for s in info_text))
 
     def _startup(self):
         self.monitor.update_ports()

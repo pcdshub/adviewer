@@ -51,16 +51,13 @@ def summarize_node(node, *, port_information=None):
         else:
             outputs.append(dest.data.port_name)
 
-    connectivity = {}
-    connectivity['input'] = inputs[0] if inputs else 'N/A'
-
-    # But multiple outputs
-    connectivity.update(**{f'output{idx}': output for idx, output
-                           in enumerate(outputs, 1)})
-
-    return {'version': port_information.get(node.data.port_name, {}),
-            'connectivity': connectivity
-            }
+    return {
+        'version': port_information.get(node.data.port_name, {}),
+        'connectivity': {
+            'input': inputs[0] if inputs else 'N/A',
+            'outputs': outputs,
+        },
+    }
 
 
 class PortData(qtpynodeeditor.NodeData):
