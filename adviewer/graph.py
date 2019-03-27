@@ -1,259 +1,31 @@
-'''
-Very confusing widget overview:
-
-PortNode(Node)
-|- ._graphicsItem = PortNodeItem(NodeGraphicsItem)
-
-PortGraphMonitor(QObject):
-|- .detector = ophyd.Detector
-|- + signals for updates
-
-PortGraphFlowchart(Flowchart)        <-- The chart, created first
-|- .monitor = PortGraphMonitor
-|- ._widget = PortGraphControlWidget
-
-PortGraphFlowchartWidget(FlowchartWidget)
-FlowchartWidget(DockArea)            <-- Dock with info about selection
-|- .chart = PortGraphFlowchart
-|- .ctrl = PortGraphControlWidget
-|- .hoverItem = ...
-|- .view = FlowchartGraphicsView
-|- .hoverText = QTextEdit
-|- .selInfo = QWidget
-|- ._scene => .view.scene()
-|- ._viewBox => .view.viewBox()
-
-PortGraphControlWidget(QWidget)      <-- Widget with tree
-|   Reimplementation of FlowChartCtrlWidget
-|- .tree = PortTreeWidget
-|- .reload_button = FeedbackButton
-|- .chartWidget = PortGraphFlowchartWidget
-'''
-
 import logging
 import threading
 import types
 
-from pyqtgraph.flowchart import (Flowchart, Node, NodeGraphicsItem,
-                                 FlowchartWidget, Terminal,
-                                 TerminalGraphicsItem, ConnectionItem)
-from pyqtgraph.flowchart.library import NodeLibrary
+import qtpynodeeditor
 import pyqtgraph.widgets as qtg_widgets
 
-from qtpy import QtWidgets, QtCore
+from qtpy import QtWidgets, QtCore, QtGui
 
 from ophyd import CamBase
 
 from typhon.utils import TyphonBase, raise_to_operator
 
 from . import utils
-
+from . import data_model
 
 logger = logging.getLogger(__name__)
 
 
-class TyphonAreaDetectorGraphWidget(TyphonBase):
-    flowchart_updated = QtCore.Signal(object)
-    port_selected = QtCore.Signal(object, str, object)
-    configure_request = QtCore.Signal(str, object)
-
-    def __init__(self, suite=None, level=logging.INFO, parent=None):
-        super().__init__(parent=parent)
-        self.layout = QtWidgets.QVBoxLayout()
-        self.layout.setContentsMargins(0, 0, 0, 0)
-
-        self.setLayout(self.layout)
-        self.charts = []
-        self.suite = suite
-
-    def add_device(self, device):
-        """Add a device to the graph display"""
-        super().add_device(device)
-
-        chart = PortGraphFlowchart(device)
-        control = chart.widget()
-
-        self.layout.addWidget(control)
-        self.charts.append((chart, control))
-
-        def emit_update():
-            self.flowchart_updated.emit(device)
-
-        chart.flowchart_updated.connect(emit_update)
-
-        def port_selected(port):
-            port_map = chart.port_map
-            plugin = port_map[port]
-            self.port_selected.emit(device, port, plugin)
-
-        chart.port_selected.connect(port_selected)
-
-        chart.configure_request.connect(self.configure_request.emit)
-
-        def show_configuration(port, plugin):
-            from ..suite import TyphonSuite
-            # TODO what do we actually want to do?
-            # TODO: where should this live?
-            if self.suite is None:
-                self.suite = TyphonSuite()
-
-            if plugin not in self.suite.devices:
-                self.suite.add_device(plugin)
-
-            self.suite.show()
-
-        chart.configure_request.connect(show_configuration)
-        return chart, control
-
-
-class PortTerminal(Terminal):
-    def __init__(self, node, name, io, optional=False, multi=False, pos=None,
-                 renamable=False, removable=False, multiable=False,
-                 bypass=None):
-        super().__init__(node, name, io, optional=optional, multi=multi,
-                         pos=pos, renamable=renamable, removable=removable,
-                         multiable=multiable, bypass=bypass)
-
-        def mouse_drag_event(tgi, ev):
-            if ev.button() != QtCore.Qt.LeftButton:
-                ev.ignore()
-                return
-
-            ev.accept()
-            if ev.isStart():
-                if tgi.newConnection is None:
-                    tgi.newConnection = ConnectionItem(tgi)
-                    tgi.getViewBox().addItem(tgi.newConnection)
-                tgi.newConnection.setTarget(tgi.mapToView(ev.pos()))
-            elif ev.isFinish():
-                if tgi.newConnection is not None:
-                    items = tgi.scene().items(ev.scenePos())
-                    targets = [item for item in items
-                               if isinstance(item, TerminalGraphicsItem)]
-                    if not targets:
-                        tgi.newConnection.close()
-                        tgi.newConnection = None
-                        return
-
-                    target = targets[0]
-                    tgi.newConnection.setTarget(target)
-                    a_term = tgi.term
-                    b_term = target.term
-                    a_node, a_name, a_term = (a_term.node(),
-                                              a_term.node().name(),
-                                              a_term.name())
-                    b_node, b_name, b_term = (b_term.node(),
-                                              b_term.node().name(),
-                                              b_term.name())
-                    if a_term == 'In' and b_term == 'Out':
-                        b_node.connection_drawn.emit(b_name, a_name)
-                    elif a_term == 'Out' and b_term == 'In':
-                        a_node.connection_drawn.emit(a_name, b_name)
-                    else:
-                        logger.error('Cannot connect %s.%s to %s.%s',
-                                     a_name, a_term, b_name, b_term)
-                    # tgi.scene().removeItem(tgi.newConnection)
-                    tgi.newConnection.close()
-                    tgi.newConnection = None
-            else:
-                if tgi.newConnection is not None:
-                    tgi.newConnection.setTarget(tgi.mapToView(ev.pos()))
-
-        # Monkey-patch because we're animals:
-        self._graphicsItem.mouseDragEvent = types.MethodType(
-            mouse_drag_event, self._graphicsItem)
-
-        def get_menu(self):
-            self._item_menu = QtWidgets.QMenu()
-            return self._item_menu
-
-        self._graphicsItem.getMenu = types.MethodType(
-            get_menu, self._graphicsItem)
-
-        # Alternatives: either re-implement __init__, or nuke the graphicsItem
-        # and re-create it...
-
-
-class PortNodeItem(NodeGraphicsItem):
-    'The scene graphics item associated with one AreaDetector PortNode'
-    WIDTH = 100
-    HEIGHT = 40
-
-    def __init__(self, node):
-        super().__init__(node)
-        # Shrink the vertical size a bit:
-        self.bounds = QtCore.QRectF(0, 0, self.WIDTH, self.HEIGHT)
-
-        # Do not allow ports to be renamed:
-        self.nameItem.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
-
-    def getMenu(self):
-        self.menu = QtWidgets.QMenu()
-        self.menu.setTitle(f'Node {self.node.name()}')
-        self.menu.addAction(f'&Configure {self.node.name()}...',
-                            self.node.configure_request.emit)
-        return self.menu
-
-
-class PortNode(Node):
-    'A graph node representing one AreaDetector port'
-    nodeName = 'PortNode'
-    connection_drawn = QtCore.Signal(str, str)
-    configure_request = QtCore.Signal()
-
-    def __init__(self, name, *, has_input=True, has_output=True):
-        terminals = {}
-        if has_input:
-            terminals['In'] = {'io': 'in'}
-        if has_output:
-            terminals['Out'] = {'io': 'out'}
-
-        super().__init__(name, terminals=terminals, allowRemove=False)
-
-    def addTerminal(self, name, **opts):
-        """Add a new terminal to this Node with the given name.
-
-        Notes
-        -----
-        Extra keyword arguments are passed to Terminal.__init__.
-        Causes sigTerminalAdded to be emitted.
-        """
-        name = self.nextTerminalName(name)
-        term = PortTerminal(self, name, **opts)
-        self.terminals[name] = term
-        if term.isInput():
-            self._inputs[name] = term
-        elif term.isOutput():
-            self._outputs[name] = term
-        self.graphicsItem().updateTerminals()
-        self.sigTerminalAdded.emit(self, term)
-        return term
-
-    def graphicsItem(self):
-        if self._graphicsItem is None:
-            self._graphicsItem = PortNodeItem(self)
-        return self._graphicsItem
-
-
-class Library(NodeLibrary):
-    'Container for AreaDetector port graphs which contain only PortNodes'
-    def __init__(self):
-        super().__init__()
-        self.addNodeType(PortNode, [('AreaDetector', )])
-
-    def reload(self):
-        ...  # API compat
-
-
 class PortTreeWidget(QtWidgets.QTreeWidget):
     'Tree representation of AreaDetector port graph'
-    def __init__(self, chart, parent=None):
+    def __init__(self, monitor, parent=None):
         super().__init__(parent=parent)
-        self.chart = chart
+        self.monitor = monitor
         self.port_to_item = {}
-        self.chart.flowchart_updated.connect(self._chart_updated)
         self.setDragEnabled(True)
         self.setDragDropMode(self.InternalMove)
+        self.monitor.update.connect(self._ports_updated)
 
     def dropEvent(self, ev):
         dragged_to = self.itemAt(ev.pos())
@@ -265,32 +37,38 @@ class PortTreeWidget(QtWidgets.QTreeWidget):
         dest_port = self.currentItem().text(0)
 
         try:
-            self.chart.monitor.set_new_source(source_port, dest_port)
+            self.monitor.set_new_source(source_port, dest_port)
         except Exception as ex:
             raise_to_operator(ex)
         else:
             super().dropEvent(ev)
 
-    def _chart_updated(self):
+    def _get_port(self, name):
+        try:
+            return self.port_to_item[name]
+        except KeyError:
+            twi = QtWidgets.QTreeWidgetItem([name])
+            self.port_to_item[name] = twi
+            return twi
+
+    def _ports_updated(self, ports_removed, ports_added, edges_removed,
+                       edges_added):
         root = self.invisibleRootItem()
         for item in self.port_to_item.values():
             parent = (root if item.parent() is None
                       else item.parent())
             parent.takeChild(parent.indexOfChild(item))
 
-        monitor = self.chart.monitor
+        monitor = self.monitor
         edges = monitor.edges
         cams = monitor.cameras
         for cam in cams:
-            item = self.port_to_item[cam]
+            item = self._get_port(cam)
             self.addTopLevelItem(item)
 
         for src, dest in sorted(edges):
-            try:
-                src_item = self.port_to_item[src]
-                dest_item = self.port_to_item[dest]
-            except KeyError:
-                continue
+            src_item = self._get_port(src)
+            dest_item = self._get_port(dest)
 
             old_parent = dest_item.parent()
             if old_parent is not None:
@@ -300,160 +78,6 @@ class PortTreeWidget(QtWidgets.QTreeWidget):
 
         for item in self.port_to_item.values():
             item.setExpanded(True)
-
-
-class PortGraphFlowchartWidget(FlowchartWidget):
-    def __init__(self, chart, ctrl):
-        super().__init__(chart, ctrl)
-        self.hoverDock.setVisible(False)
-
-        def get_context_menus(ev):
-            return []
-
-        self.view._vb.getContextMenus = get_context_menus
-
-        # Hide the 'data type' column
-        self.selectedTree.hideColumn(1)
-
-    def selectionChanged(self):
-        items = self._scene.selectedItems()
-        if len(items) == 0 or not hasattr(items[0], 'node'):
-            self.selectedTree.setData(None, hideRoot=True)
-            return
-
-        node = items[0].node
-        self.ctrl.select(node)
-
-        inputs = [conn.node().name()
-                  for input in node.inputs().values()
-                  for conn in input.connections()]
-
-        monitor = self.chart.monitor
-        port_info = monitor.port_information.get(node.name(), {})
-
-        connectivity = {}
-        connectivity['Input'] = inputs[0] if inputs else 'N/A'
-
-        outputs = [conn.node().name()
-                   for output in node.outputs().values()
-                   for conn in output.connections()]
-
-        # But multiple outputs
-        connectivity.update(**{f'Output{idx}': output for idx, output
-                               in enumerate(outputs, 1)})
-
-        self.selNameLabel.setText(node.name())
-        self.selDescLabel.setText(
-            f"<b>{node.nodeName}</b>: {node.__class__.__doc__}"
-        )
-
-        # if node.exception is not None:
-        #     data['exception'] = node.exception
-
-        data = {'Version': port_info,
-                'Connectivity': connectivity
-                }
-        self.selectedTree.setData(data, hideRoot=True)
-
-    def hoverOver(self, items):
-        ...
-        # Hiding the hover information for now - any ideas for usage?
-
-
-class PortGraphControlWidget(QtWidgets.QWidget):
-    '''
-    The widget that contains the tree of all the nodes in a flowchart
-    '''
-
-    def __init__(self, chart):
-        self.port_to_item = {}
-        self.currentFileName = None
-        super().__init__()
-        self.chart = chart
-
-        layout = QtWidgets.QGridLayout(self)
-        self.layout = layout
-        layout.setVerticalSpacing(0)
-
-        reload_button = qtg_widgets.FeedbackButton.FeedbackButton(self)
-        self.reload_button = reload_button
-        reload_button.setText('Reload')
-        reload_button.setCheckable(False)
-        reload_button.setFlat(False)
-        layout.addWidget(reload_button, 1, 0, 1, 4)
-
-        tree = PortTreeWidget(chart, self)
-        self.tree = tree
-        tree.headerItem().setText(0, 'Port')
-        tree.header().setVisible(False)
-        tree.header().setStretchLastSection(False)
-        tree.header().setSectionResizeMode(0, tree.header().Stretch)
-        layout.addWidget(tree, 0, 0, 1, 4)
-
-        tree.setColumnCount(2)
-        tree.setColumnWidth(1, 20)
-        tree.setVerticalScrollMode(tree.ScrollPerPixel)
-        tree.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-
-        self.chartWidget = PortGraphFlowchartWidget(chart, self)
-        layout.addWidget(self.chartWidget, 0, 4, 4, 1)
-        # self.chartWidget.viewBox().autoRange()
-
-        tree.itemSelectionChanged.connect(self._tree_selection_changed)
-        reload_button.clicked.connect(self.reloadClicked)
-
-    def reloadClicked(self):
-        try:
-            self.chart.monitor.update_ports()
-        except Exception:
-            self.reload_button.failure('Error.')
-            logger.exception('Failed to reload')
-        else:
-            self.reload_button.success('Reloaded.')
-
-    def scene(self):
-        return self.chartWidget.scene()
-
-    def viewBox(self):
-        return self.chartWidget.viewBox()
-
-    def nodeRenamed(self, node, oldName):
-        ...  # API compatibility
-
-    def addNode(self, node):
-        item = QtWidgets.QTreeWidgetItem([node.name()])
-        self.tree.addTopLevelItem(item)
-        self.tree.port_to_item[node.name()] = item
-
-    def removeNode(self, node):
-        try:
-            item = self.tree.port_to_item.pop(node.name())
-        except KeyError:
-            ...
-        else:
-            parent = (item.parent()
-                      if item.parent() is not None
-                      else self.tree.invisibleRootItem())
-            parent.takeChild(parent.indexOfChild(item))
-
-    def select(self, node):
-        item = self.tree.port_to_item[node.name()]
-        self.tree.setCurrentItem(item)
-        self.chart.port_selected.emit(node.name())
-
-    def _tree_selection_changed(self):
-        try:
-            item, = self.tree.selectedItems()
-        except (TypeError, ValueError):
-            return
-
-        port_name = item.text(0)
-        node = self.chart._port_nodes[port_name]['node']
-        node_graphic = node.graphicsItem()
-
-        self.chart.scene.clearSelection()
-        node_graphic.setSelected(True)
-        self.chartWidget.view.centerOn(node_graphic)
 
 
 class PortGraphMonitor(QtCore.QObject):
@@ -633,13 +257,12 @@ class PortGraphMonitor(QtCore.QObject):
                              edges_added)
 
 
-class PortGraphFlowchart(Flowchart):
+class PortGraphFlowchart(QtWidgets.QWidget):
     '''
     A flow chart representing one AreaDetector's port connectivity
 
     Parameters
-    ----------
-    detector : ophyd.Detector
+    ---------- detector : ophyd.Detector
         The detector to monitor
     parent : QtCore.QObject, optional
         The parent widget
@@ -649,25 +272,61 @@ class PortGraphFlowchart(Flowchart):
     port_selected = QtCore.Signal(str)
     configure_request = QtCore.Signal(str, object)
 
-    def __init__(self, detector, *, library=None):
-        if library is None:
-            library = Library()
+    def __init__(self, monitor, *, parent=None):
+        super().__init__(parent=parent)
 
-        super().__init__(terminals={}, library=library)
-        # Though the superclass as of the time of writing calls self.widget()
-        # in __init__, ensure that's always the case here:
-        self.widget()
+        self.monitor = monitor
+        self.detector = monitor.detector
 
-        # Unused input/output widgets:
-        for node in (self.inputNode, self.outputNode):
-            self.removeNode(node)
-
-        self.monitor = PortGraphMonitor(detector, parent=self)
         self.monitor.update.connect(self._ports_updated)
+
+        self.registry = qtpynodeeditor.DataModelRegistry()
+        for ophyd_cls, model in data_model.models.items():
+            print('Register model', ophyd_cls, model, model.name)
+            self.registry.register_model(model, category='Area Detector')
+
+        self.scene = qtpynodeeditor.FlowScene(registry=self.registry)
+        self.scene.allow_node_creation = False
+        self.scene.allow_node_deletion = False
+        self.scene.connection_created.connect(self._user_connected_nodes)
+        self.scene.connection_deleted.connect(self._user_deleted_connection)
+        self.scene.node_hovered.connect(self._user_node_hovered)
+
+        self.view = qtpynodeeditor.FlowView(self.scene)
+        self.view.setWindowTitle(self.detector.name)
+
+        self.layout = QtWidgets.QVBoxLayout()
+        self.dock = QtWidgets.QDockWidget()
+        self.layout.addWidget(self.view)
+        self.setLayout(self.layout)
 
         self._port_nodes = {}
         self._edges = set()
         self._auto_position = True
+
+    def _user_node_hovered(self, node, pos):
+        # print('hover', node, pos)
+        print(data_model.summarize_node(
+            node, port_information=self.monitor.port_information))
+
+    def _user_deleted_connection(self, conn):
+        src_node, dest_node = conn.nodes
+        try:
+            cam = self.monitor.cameras[0]
+            self.monitor.set_new_source(cam, dest_node)
+        except Exception as ex:
+            raise_to_operator(ex)
+
+    def _user_connected_nodes(self, conn):
+        dest_node, src_node = conn.nodes
+        src, dest = src_node.data.port_name, dest_node.data.port_name
+        if (src, dest) in self._edges:
+            return
+
+        try:
+            self.monitor.set_new_source(src, dest)
+        except Exception as ex:
+            raise_to_operator(ex)
 
     @property
     def edges(self):
@@ -680,25 +339,37 @@ class PortGraphFlowchart(Flowchart):
 
         for src, dest in edges_removed:
             try:
-                src_node = self._port_nodes[src]['node']
-                dest_node = self._port_nodes[dest]['node']
+                src_info = self._port_nodes[src]
+                dest_info = self._port_nodes[dest]
             except KeyError:
                 logger.debug('Edge removed that did not connect a known port, '
                              'likely in error: %s -> %s', src, dest)
                 continue
 
-            src_node['Out'].disconnectFrom(dest_node['In'])
+            src_node = src_info['node']
+            dest_node = dest_info['node']
+
+            # TODO keeping track of connections like this is less than ideal...
+            try:
+                conn = src_info['connections'].pop(dest_node)
+                del dest_info['connections'][src_node]
+            except KeyError:
+                ...
+            else:
+                self.scene.delete_connection(conn)
+
             self._edges.remove((src, dest))
 
         for port in ports_removed:
             node = self._port_nodes.pop(port)
-            node.disconnectAll()
-            self.removeNode(node)
+            self.scene.remove_node(node)
 
         for port in ports_added:
             plugin = self.port_map[port]
             self._port_nodes[port] = dict(node=self.add_port(port, plugin),
-                                          plugin=plugin)
+                                          plugin=plugin,
+                                          connections={},
+                                          )
 
         for src, dest in edges_added:
             try:
@@ -711,56 +382,58 @@ class PortGraphFlowchart(Flowchart):
                 logger.debug('Edge added to unknown port: %s -> %s', src, dest)
                 continue
 
-            try:
-                if src_node != dest_node:
-                    self.connectTerminals(src_node['Out'], dest_node['In'])
-            except Exception:
-                logger.exception('Failed to connect terminals %s -> %s', src,
-                                 dest)
-
             self._edges.add((src, dest))
 
-        control_widget = self.widget()
+            if src_node != dest_node:
+                try:
+                    connection = self.scene.create_connection(
+                        node_out=src_node, port_index_out=0,
+                        node_in=dest_node, port_index_in=0,
+                        converter=None
+                    )
+                except Exception:
+                    logger.exception('Failed to connect terminals %s -> %s',
+                                     src, dest)
+                else:
+                    self._port_nodes[src]['connections'][dest] = connection
+                    self._port_nodes[dest]['connections'][src] = connection
 
         if self._auto_position:
             positions = utils.position_nodes(
                 self._edges, self.port_map,
-                x_spacing=PortNodeItem.WIDTH * 1.5,
-                y_spacing=PortNodeItem.HEIGHT * 1.5,
+                x_spacing=150.0,  # TODO less magic numbers
+                y_spacing=100.0,
             )
             for port, (px, py) in positions.items():
                 node = self._port_nodes[port]['node']
-                node.graphicsItem().setPos(px, py)
-
-            control_widget.chartWidget.view.scale(1, 1)
+                node.graphics_object.setPos(QtCore.QPointF(px, py))
 
         self.flowchart_updated.emit()
 
-    def widget(self):
-        """Return the control widget for this flowchart.
-
-        This widget provides GUI access to the parameters for each node and a
-        graphical representation of the flowchart.
-        """
-        if self._widget is None:
-            self._widget = PortGraphControlWidget(self)
-            self.scene = self._widget.scene()
-            self.viewBox = self._widget.viewBox()
-        return self._widget
-
     def add_port(self, name, plugin, pos=None):
-        def connection_drawn(src, dest):
-            try:
-                self.monitor.set_new_source(src, dest)
-            except Exception as ex:
-                raise_to_operator(ex)
-
-        def configure_request():
-            self.configure_request.emit(name, plugin)
-
-        has_input = not isinstance(plugin, CamBase)
-        node = PortNode(name, has_input=has_input)
-        node.configure_request.connect(configure_request)
-        node.connection_drawn.connect(connection_drawn)
-        self.addNode(node, name, pos=pos)
+        model = data_model.get_node_data_model(plugin)
+        node = self.scene.create_node(model)
+        node.data.port_name = name
+        node.data.caption = name
         return node
+
+
+class PortGraphWindow(QtWidgets.QMainWindow):
+    def __init__(self, detector, *, parent=None):
+        super().__init__(parent=parent)
+
+        self.monitor = PortGraphMonitor(detector, parent=self)
+        self.chart = PortGraphFlowchart(self.monitor)
+        self.tree = PortTreeWidget(self.monitor)
+        self.chart.flowchart_updated.connect(self.tree.update)
+
+        self.setCentralWidget(self.chart.view)
+
+        self.tree_dock = QtWidgets.QDockWidget('Port &Tree')
+        self.tree_dock.setWidget(self.tree)
+
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.tree_dock)
+        threading.Thread(target=self._startup).start()
+
+    def _startup(self):
+        self.monitor.update_ports()
