@@ -198,3 +198,9 @@ def test_tree_drag(qtbot, flow_chart, tree):
     # qtbot.mouseMove(tree, pos=tiff1.pos())
     # qtbot.mouseRelease(tree, pos=roi1.pos())
     # TODO?
+
+
+def test_smoke_tree_select(qtbot, flow_chart, tree):
+    reload_graph(qtbot, flow_chart)
+    tree.port_selected.emit('tiff1')
+    tree.port_selected.emit('unknown')
