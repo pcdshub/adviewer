@@ -47,12 +47,12 @@ def summarize_node(node, *, port_information=None):
     for conn in node.state.all_connections:
         dest, _ = conn.nodes
         if dest is node:
-            inputs.append(dest.data.port_name)
+            inputs.append(dest.model.port_name)
         else:
-            outputs.append(dest.data.port_name)
+            outputs.append(dest.model.port_name)
 
     return {
-        'version': port_information.get(node.data.port_name, {}),
+        'version': port_information.get(node.model.port_name, {}),
         'connectivity': {
             'input': inputs[0] if inputs else 'N/A',
             'outputs': outputs,
@@ -74,12 +74,8 @@ class NodeCam(qtpynodeeditor.NodeDataModel):
                  'output': 1,
                  }
     port_caption = {'output': {0: 'Out'}}
-
-    def data_type(self, port_type, port_index):
-        return PortData.data_type
-
-    def port_caption_visible(self, port_type, port_index):
-        return True
+    port_caption_visible = True
+    data_type = PortData.data_type
 
 
 @register_model(plugins.PluginBase)
@@ -91,9 +87,5 @@ class NodePlugin(qtpynodeeditor.NodeDataModel):
     port_caption = {'input': {0: 'In'},
                     'output': {0: 'Out'},
                     }
-
-    def data_type(self, port_type, port_index):
-        return PortData.data_type
-
-    def port_caption_visible(self, port_type, port_index):
-        return True
+    port_caption_visible = True
+    data_type = PortData.data_type

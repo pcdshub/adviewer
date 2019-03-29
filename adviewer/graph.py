@@ -325,7 +325,7 @@ class PortGraphFlowchart(QtWidgets.QWidget):
 
     def _user_connected_nodes(self, conn):
         dest_node, src_node = conn.nodes
-        src, dest = src_node.data.port_name, dest_node.data.port_name
+        src, dest = src_node.model.port_name, dest_node.model.port_name
         if (src, dest) in self._edges:
             return
 
@@ -421,8 +421,8 @@ class PortGraphFlowchart(QtWidgets.QWidget):
     def add_port(self, name, plugin, pos=None):
         model = data_model.get_node_data_model(plugin)
         node = self.scene.create_node(model)
-        node.data.port_name = name
-        node.data.caption = name
+        node.model.port_name = name
+        node.model.caption = name
         return node
 
 
@@ -476,7 +476,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
     def _user_node_hovered(self, node, pos):
         info = data_model.summarize_node(
             node, port_information=self.monitor.port_information)
-        info_text = [node.data.port_name]
+        info_text = [node.model.port_name]
         for category, info in info.items():
             info_text.append(f'<b>{category}</b>')
             for sub_category, item in info.items():
