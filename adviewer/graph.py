@@ -289,9 +289,10 @@ class PortGraphFlowchart(QtWidgets.QWidget):
             print('Register model', ophyd_cls, model, model.name)
             self.registry.register_model(model, category='Area Detector')
 
-        self.scene = qtpynodeeditor.FlowScene(registry=self.registry)
-        self.scene.allow_node_creation = False
-        self.scene.allow_node_deletion = False
+        self.scene = qtpynodeeditor.FlowScene(
+            registry=self.registry, allow_node_deletion=False,
+            allow_node_creation=False)
+
         self.scene.connection_created.connect(self._user_connected_nodes)
         self.scene.connection_deleted.connect(self._user_deleted_connection)
 
@@ -388,9 +389,8 @@ class PortGraphFlowchart(QtWidgets.QWidget):
             if src_node != dest_node:
                 try:
                     connection = self.scene.create_connection(
-                        node_out=src_node, port_index_out=0,
-                        node_in=dest_node, port_index_in=0,
-                        converter=None
+                        src_node['output'][0],
+                        dest_node['input'][0],
                     )
                 except Exception:
                     logger.exception('Failed to connect terminals %s -> %s',
