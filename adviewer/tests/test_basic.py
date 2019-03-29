@@ -1,7 +1,7 @@
 import pytest
 from qtpy import QtCore
 
-from adviewer import TyphonAreaDetectorGraphWidget
+from adviewer import PortGraphWindow
 
 
 @pytest.fixture(scope='function')
@@ -33,42 +33,33 @@ def fake_detector():
 
 
 @pytest.fixture(scope='function')
-def typhon_graph_widget(qtbot, fake_detector):
-    widget = TyphonAreaDetectorGraphWidget()
+def graph_window(qtbot, fake_detector):
+    widget = PortGraphWindow(fake_detector)
     qtbot.addWidget(widget)
-    widget.add_device(fake_detector)
+    if not widget._interface_ready.wait(2):
+        raise RuntimeError('Failed to update ports?')
     return widget
 
 
 @pytest.fixture(scope='function')
-def port_graph(qtbot, typhon_graph_widget):
-    chart, control = typhon_graph_widget.charts[0]
-    return chart
+def flow_chart(graph_window):
+    return graph_window.chart
 
 
 @pytest.fixture(scope='function')
-def monitor(port_graph):
-    return port_graph.monitor
+def tree(graph_window):
+    return graph_window.tree
 
 
 @pytest.fixture(scope='function')
-def control_widget(port_graph):
-    'PortGraphControlWidget'
-    return port_graph.widget()
-
-
-@pytest.fixture(scope='function')
-def chart_widget(control_widget):
-    'PortGraphFlowchartWidget'
-    return control_widget.chartWidget
+def monitor(graph_window):
+    return graph_window.monitor
 
 
 def test_monitor(monitor):
-    assert not monitor._port_map
-    monitor.update_port_map()
     print(list(sorted(monitor.port_map.keys())))
     assert monitor._port_map == monitor.port_map
-    assert len(monitor._port_map) == len(monitor.port_information)
+    assert len(monitor.port_map) == len(monitor.port_information)
     assert monitor.cameras == ['cam', 'cam2']
     # Default configuration: all plugins connected to cam
     # Subtract 2 for: cam and cam2
@@ -93,58 +84,56 @@ def test_monitor_sources(monitor):
     assert ('roi1', 'tiff1') in monitor.get_edges()
 
 
-def test_graph_smoke(qtbot, monitor, port_graph):
-    print('edges are', port_graph.edges)
+def test_graph_smoke(qtbot, monitor, flow_chart):
+    print('edges are', flow_chart.edges)
 
 
-def test_add_edge(qtbot, monitor, port_graph):
-    reload_graph(qtbot, port_graph)
+def reload_graph(qtbot, flow_chart):
+    flow_chart.monitor.update_ports()
+    qtbot.waitSignal(flow_chart.flowchart_updated)
+
+
+def test_add_edge(qtbot, monitor, flow_chart):
+    reload_graph(qtbot, flow_chart)
     monitor.set_new_source('roi1', 'tiff1')
-    reload_graph(qtbot, port_graph)
+    reload_graph(qtbot, flow_chart)
 
 
-def test_add_then_remove_edge(qtbot, monitor, port_graph):
-    reload_graph(qtbot, port_graph)
+def test_add_then_remove_edge(qtbot, monitor, flow_chart):
+    reload_graph(qtbot, flow_chart)
     monitor.set_new_source('roi1', 'tiff1')
-    reload_graph(qtbot, port_graph)
+    reload_graph(qtbot, flow_chart)
     monitor.set_new_source('cam', 'tiff1')
-    reload_graph(qtbot, port_graph)
+    reload_graph(qtbot, flow_chart)
 
 
-def reload_graph(qtbot, port_graph):
-    control_widget = port_graph.widget()
-    qtbot.mouseClick(control_widget.reload_button, QtCore.Qt.LeftButton)
-    qtbot.waitSignal(port_graph.flowchart_updated)
+def test_graph_basic(qtbot, fake_detector, flow_chart):
+    reload_graph(qtbot, flow_chart)
 
 
-def test_graph_basic(qtbot, fake_detector, port_graph):
-    reload_graph(qtbot, port_graph)
-
-
-def test_graph_bad_edge(qtbot, fake_detector, port_graph):
+def test_graph_bad_edge(qtbot, fake_detector, flow_chart):
     fake_detector.tiff1.nd_array_port.sim_put('UNKNOWN')
-    reload_graph(qtbot, port_graph)
+    reload_graph(qtbot, flow_chart)
 
 
-def test_graph_cycle(qtbot, fake_detector, port_graph):
+def test_graph_cycle(qtbot, fake_detector, flow_chart):
     fake_detector.tiff1.nd_array_port.sim_put('tiff1')
-    reload_graph(qtbot, port_graph)
+    reload_graph(qtbot, flow_chart)
 
 
-def get_node(port_graph, node_name):
-    return port_graph._port_nodes[node_name]['node']
+def get_node(flow_chart, node_name):
+    return flow_chart.nodes[node_name]['node']
 
 
-def test_graph_select_node(qtbot, fake_detector, port_graph, chart_widget):
-    reload_graph(qtbot, port_graph)
+def test_graph_select_node(qtbot, fake_detector, flow_chart):
+    reload_graph(qtbot, flow_chart)
 
-    item = get_node(port_graph, 'cam').graphicsItem()
-    qtbot.waitSignal(port_graph.flowchart_updated)
+    item = get_node(flow_chart, 'cam').graphics_object
+    qtbot.waitSignal(flow_chart.flowchart_updated)
 
     item.setSelected(True)
-    chart_widget.selectionChanged()
     item.setSelected(False)
-    chart_widget.selectionChanged()
+    # TODO pyqtgraph remnant?
 
 
 class FakeDragEvent:
@@ -179,13 +168,14 @@ class FakeDragEvent:
         self._ignored = True
 
 
-def test_graph_connect_output_to_input(qtbot, fake_detector, port_graph,
-                                       chart_widget):
-    reload_graph(qtbot, port_graph)
+def test_graph_connect_output_to_input(qtbot, fake_detector, flow_chart):
+    reload_graph(qtbot, flow_chart)
 
-    cam_node = get_node(port_graph, 'cam')
+    pytest.skip('TODO')
+
+    cam_node = get_node(flow_chart, 'cam')
     cam_out = cam_node['Out']._graphicsItem
-    tiff_node = get_node(port_graph, 'tiff1')
+    tiff_node = get_node(flow_chart, 'tiff1')
     tiff_in = tiff_node['In']._graphicsItem
 
     ev = FakeDragEvent(scene_pos=cam_out.scenePos(), pos=cam_out.pos())
@@ -199,10 +189,8 @@ def test_graph_connect_output_to_input(qtbot, fake_detector, port_graph,
     # TODO: this does not find the tiff_in terminal, somehow (see coverage)
 
 
-def test_tree_drag(qtbot, fake_detector, port_graph, control_widget,
-                   chart_widget):
-    reload_graph(qtbot, port_graph)
-    tree = control_widget.tree
+def test_tree_drag(qtbot, flow_chart, tree):
+    reload_graph(qtbot, flow_chart)
 
     roi1 = tree.port_to_item['roi1']
     tiff1 = tree.port_to_item['tiff1']

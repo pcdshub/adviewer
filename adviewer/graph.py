@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 
@@ -123,15 +124,21 @@ class PortGraphMonitor(QtCore.QObject):
         self.detector = detector
         self.lock = threading.Lock()
         self._port_map = {}
+        self._port_information = {}
         self._subscriptions = {}
 
     def update_port_map(self):
         'Update the port map'
         self.detector.wait_for_connection()
-        self._port_map = self.detector.get_asyn_port_dictionary()
-        self._port_information = {port: self.get_port_information(port)
-                                  for port in self._port_map
-                                  }
+        self._port_map.clear()
+        self._port_map.update(**self.detector.get_asyn_port_dictionary())
+
+        self._port_information.clear()
+        self._port_information.update(
+            **{port: self.get_port_information(port)
+               for port in self._port_map
+               }
+        )
 
     @property
     def port_map(self):
@@ -423,6 +430,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
     def __init__(self, detector, *, parent=None):
         super().__init__(parent=parent)
 
+        self._interface_ready = threading.Event()
         self.detector = detector
         self.setWindowTitle(f'adviewer - {self.detector.name}')
 
@@ -430,6 +438,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.chart = PortGraphFlowchart(self.monitor)
         self.tree = PortTreeWidget(self.monitor)
         self.info_label = QtWidgets.QLabel()
+        self.loop = asyncio.get_event_loop()
 
         self.setCentralWidget(self.chart.view)
 
@@ -482,4 +491,6 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.info_label.setText('<br>'.join(str(s) for s in info_text))
 
     def _startup(self):
+        asyncio.set_event_loop(self.loop)
         self.monitor.update_ports()
+        self._interface_ready.set()
