@@ -44,8 +44,7 @@ class DetectorModel(QtCore.QAbstractTableModel):
 
         for suffix, info in self.components.items():
             if suffix in self.checked_components:
-                identifier = discovery.category_to_identifier(suffix)
-                attr = category_to_identifier(plugin_suffix)
+                attr = discovery.category_to_identifier(suffix)
                 class_dict[attr] = ophyd.Component(info['class_'], suffix)
 
         return ophyd.device.create_device_from_components(
@@ -295,7 +294,17 @@ class DiscoveryWidget(QtWidgets.QFrame):
         self.graph_button.clicked.connect(self.graph_open)
 
     def graph_open(self):
-        ...
+        model = self.view.model
+        if not model:
+            return
+
+        prefix = self.view.prefix
+        class_name = discovery.class_name_from_prefix(prefix)
+
+        cls = model.to_ophyd_class(class_name=class_name)
+        instance = cls(prefix, name=f'{class_name}_adviewer')
+        instance.wait_for_connection()
+        print(instance, instance.connected)
 
     def create_ophyd_class(self):
         model = self.view.model
