@@ -480,11 +480,15 @@ class PortGraphWindow(QtWidgets.QMainWindow):
             for sub_category, item in info.items():
                 prefix = f'- {sub_category}: '
                 if isinstance(item, list):
-                    info_text.append(
-                        '{} {}'.format(prefix,
-                                       ', '.join(str(s) for s in item)))
+                    line = '{} {}'.format(
+                        prefix,
+                        ', '.join(str(s) for s in item))
                 else:
-                    info_text.append(f'{prefix} {item}')
+                    line = f'{prefix} {item}'
+
+                if len(line) > 100:
+                    line = line[:100] + '...'
+                info_text.append(line)
 
         self.info_label.setText('<br>'.join(str(s) for s in info_text))
 
