@@ -285,6 +285,7 @@ class PortGraphFlowchart(QtWidgets.QWidget):
     def __init__(self, monitor, *, parent=None):
         super().__init__(parent=parent)
 
+        self._edges_removed = []
         self.monitor = monitor
         self.detector = monitor.detector
 
@@ -316,9 +317,15 @@ class PortGraphFlowchart(QtWidgets.QWidget):
 
     def _user_deleted_connection(self, conn):
         src_node, dest_node = conn.nodes
+        src, dest = src_node.model.port_name, dest_node.model.port_name
+        if (src, dest) in self._edges_removed:
+            # Callback for edge we requested to delete
+            self._edges_removed.remove((src, dest))
+            return
+
         try:
             cam = self.monitor.cameras[0]
-            self.monitor.set_new_source(cam, dest_node)
+            self.monitor.set_new_source(cam, dest)
         except Exception as ex:
             raise_to_operator(ex)
 
@@ -362,7 +369,10 @@ class PortGraphFlowchart(QtWidgets.QWidget):
             conn = src_info['connections'].pop(dest, None)
             dest_info['connections'].pop(src, None)
 
-            if conn is not None:
+            if conn is None:
+                logger.debug('No connection found between %s -> %s', src, dest)
+            else:
+                self._edges_removed.append((src, dest))
                 self.scene.delete_connection(conn)
 
             self._edges.remove((src, dest))
