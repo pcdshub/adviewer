@@ -226,10 +226,9 @@ class PortGraphMonitor(QtCore.QObject):
 
     def update_ports(self):
         'Read the port digraph/dictionary from the detector and emit updates'
-        port_map = self.port_map
-        edges = utils.break_cycles(self.get_edges())
-
         with self.lock:
+            port_map = self.port_map
+            edges = utils.break_cycles(self.get_edges())
             for port, plugin in sorted(port_map.items()):
                 if (port not in self._subscriptions and
                         hasattr(plugin, 'nd_array_port')):
