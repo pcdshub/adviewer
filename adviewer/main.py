@@ -246,10 +246,14 @@ class DetectorView(QtWidgets.QTableView):
     def __init__(self, prefix, parent=None):
         super().__init__(parent=parent)
         self._prefix = None
-        self.model = None
+        self.models = {}
 
         # Set the property last
         self.prefix = prefix
+
+    @property
+    def model(self):
+        return self.models.get(self._prefix, None)
 
     @property
     def prefix(self):
@@ -257,12 +261,18 @@ class DetectorView(QtWidgets.QTableView):
 
     @prefix.setter
     def prefix(self, prefix):
+        if prefix == self._prefix:
+            return
+
         self._prefix = prefix
         if prefix:
-            if self.model is not None:
-                ...
-            self.model = DetectorFromChannelAccessModel(prefix=prefix)
-            self.setModel(self.model)
+            try:
+                model = self.models[prefix]
+            except KeyError:
+                model = DetectorFromChannelAccessModel(prefix=prefix)
+                self.models[prefix] = model
+
+            self.setModel(model)
 
             header = self.horizontalHeader()
             header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
@@ -290,8 +300,14 @@ class DiscoveryWidget(QtWidgets.QFrame):
         self.layout.addWidget(self.graph_button, 2, 1)
         self.setLayout(self.layout)
 
+        self.prefix_edit.returnPressed.connect(self.prefix_changed)
         self.ophyd_class_button.clicked.connect(self.create_ophyd_class)
         self.graph_button.clicked.connect(self.graph_open)
+
+    def prefix_changed(self):
+        new_prefix = self.prefix_edit.text().strip()
+        logger.info('New prefix: %s', new_prefix)
+        self.view.prefix = new_prefix
 
     def graph_open(self):
         model = self.view.model
@@ -304,7 +320,6 @@ class DiscoveryWidget(QtWidgets.QFrame):
         cls = model.to_ophyd_class(class_name=class_name)
         instance = cls(prefix, name=f'{class_name}_adviewer')
         instance.wait_for_connection()
-        print(instance, instance.connected)
         self._graph_window = graph.PortGraphWindow(instance, parent=self)
         self._graph_window.show()
 
@@ -323,6 +338,7 @@ class DiscoveryWidget(QtWidgets.QFrame):
         print(f'\n\n{code}\n\n')
 
         editor = QtWidgets.QTextEdit()
+        editor.setWindowTitle(f'Detector code for {prefix}')
         editor.setFontFamily('Courier')
         editor.setText(code)
         editor.setReadOnly(True)
