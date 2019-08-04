@@ -352,16 +352,15 @@ class PortGraphFlowchart(QtWidgets.QWidget):
                 src_info = self._nodes[src]
                 dest_info = self._nodes[dest]
             except KeyError:
-                logger.debug('Edge removed that did not connect a known port, '
+                logger.error('Edge removed that did not connect a known port, '
                              'likely in error: %s -> %s', src, dest)
                 continue
 
             src_node = src_info['node']
             dest_node = dest_info['node']
 
-            # TODO keeping track of connections like this is less than ideal...
-            conn = src_info['connections'].pop(dest_node, None)
-            dest_info['connections'].pop(src_node, None)
+            conn = src_info['connections'].pop(dest, None)
+            dest_info['connections'].pop(src, None)
 
             if conn is not None:
                 self.scene.delete_connection(conn)
