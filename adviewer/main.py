@@ -8,7 +8,7 @@ from qtpy.QtCore import Qt, Signal
 import ophyd
 
 from . import discovery
-
+from . import graph
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +305,8 @@ class DiscoveryWidget(QtWidgets.QFrame):
         instance = cls(prefix, name=f'{class_name}_adviewer')
         instance.wait_for_connection()
         print(instance, instance.connected)
+        self._graph_window = graph.PortGraphWindow(instance, parent=self)
+        self._graph_window.show()
 
     def create_ophyd_class(self):
         model = self.view.model
