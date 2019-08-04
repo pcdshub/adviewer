@@ -5,13 +5,14 @@ import threading
 from qtpy import QtWidgets, QtCore
 from qtpy.QtCore import Qt, Signal
 
-from ophyd import CamBase
-import qtpynodeeditor
-from typhon.utils import raise_to_operator
+import ophyd
+
 from . import discovery
 
 
 logger = logging.getLogger(__name__)
+
+# TODO this will all break in versions < 2.2 (?) without ADCoreVersion_RBV
 
 
 class DetectorModel(QtCore.QAbstractTableModel):
@@ -28,11 +29,51 @@ class DetectorModel(QtCore.QAbstractTableModel):
             'Prefix', 'Class', 'Info'
         ]
 
-    def to_ophyd_class_code(self, base_class='DetectorBase', indent=' ' * 4):
+    def get_driver_version(self):
+        # TODO: this should be set when we get a callback
+        for cpt in self.components.values():
+            try:
+                return cpt['info']['driver_version']
+            except KeyError:
+                ...
+
+        return 'TODO'
+
+    def to_ophyd_class_code(self, prefix, class_name=None, *,
+                            base_class='DetectorBase'):
+        classes = {info['class_']
+                   for suffix, info in self.components.items()
+                   }
+        cam_classes = {cls for cls in classes
+                       if issubclass(cls, ophyd.CamBase)
+                       }
+        plugin_classes = {cls for cls in classes
+                          if cls not in cam_classes}
+
+        cam_imports = ', '.join(sorted(cls.__name__ for cls in cam_classes))
+        yield f'from ophyd.areadetector.cam import ({cam_imports})'
+
+        plugin_imports = ', '.join(sorted(cls.__name__ for cls in plugin_classes))
+        yield f'from ophyd.areadetector.plugins import ({plugin_imports})'
+
+        yield ''
+
+        if not class_name:
+            class_name = discovery.category_to_identifier(prefix).capitalize()
+            if class_name.startswith('_'):
+                class_name = 'Detector' + class_name.lstrip('_').capitalize()
+        driver_version = discovery.version_tuple_from_string(self.get_driver_version())
+
+        yield f'class {class_name}({base_class}, version={driver_version}):'
+
         for suffix, info in self.components.items():
-            identifier = discovery.category_to_identifier(prefix)
-            class_ = info['class_']
-            yield f'{indent}    {identifier} = Cpt({class_}, {suffix!r})'
+            identifier = discovery.category_to_identifier(suffix)
+            class_ = info['class_'].__name__
+            yield f'    {identifier} = Cpt({class_}, {suffix!r})'
+
+        yield ''
+        yield ''
+        yield f'# det = {class_name}({prefix!r}, name="det")'
 
     @property
     def adcore_version(self):
@@ -185,10 +226,6 @@ class DetectorView(QtWidgets.QTableView):
         super().__init__(parent=parent)
         self._prefix = None
         self.model = None
-        header = self.horizontalHeader()
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
 
         # Set the property last
         self.prefix = prefix
@@ -205,6 +242,11 @@ class DetectorView(QtWidgets.QTableView):
                 ...
             self.model = DetectorFromChannelAccessModel(prefix=prefix)
             self.setModel(self.model)
+
+            header = self.horizontalHeader()
+            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
 
 
 class DiscoveryWidget(QtWidgets.QFrame):
@@ -230,15 +272,18 @@ class DiscoveryWidget(QtWidgets.QFrame):
     def create_ophyd_class(self):
         model = self.view.model
         if not model:
-            print('model unset?')
             return
 
-        print()
-        print()
-        for line in model.to_ophyd_class_code():
-            print(line)
-        print()
-        print()
+        prefix = self.view.prefix
+        code = '\n'.join(model.to_ophyd_class_code(prefix=prefix))
+        print(f'\n\n{code}\n\n')
+
+        editor = QtWidgets.QTextEdit()
+        editor.setFontFamily('Courier')
+        editor.setText(code)
+        editor.setReadOnly(True)
+        editor.show()
+        self._code_editor = editor
 
 
 if __name__ == '__main__':
