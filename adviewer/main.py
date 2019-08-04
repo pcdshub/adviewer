@@ -194,11 +194,11 @@ class DetectorFromChannelAccessModel(DetectorModel):
 
         self.prefix = prefix
         self.lock = threading.RLock()
+        self.pending_plugins = []
         self.cams = discovery.find_cams_over_channel_access(
                 prefix, callback=self._cam_callback)
         self.plugins = discovery.find_plugins_over_channel_access(
                 prefix, callback=self._plugin_callback)
-        self.pending_plugins = []
 
         self.component_updated.connect(self._update_component)
         self.have_adcore_version.connect(self._adcore_version_received)
