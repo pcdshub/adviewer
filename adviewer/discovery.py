@@ -63,15 +63,21 @@ def connect_to_many(prefix, pv_to_category_and_key, callback):
             return
 
         value = pv.get()
-        status.info[category][key] = value
+        try:
+            status.info[category][key] = value
+        except KeyError:
+            logger.debug('Callback with user-deleted key (pv=%s, %s %s)', pv,
+                         category, key)
+            return
+
         logger.debug('Connected to %s (%s, %s)=%s', pv, category, key, value)
 
         with status._lock:
             status.connected_count += 1
 
         if callback is not None:
-            callback(pv=pv, category=category, key=key,
-                     value=value, connected_count=connected_count)
+            callback(pv=pv, category=category, key=key, value=value,
+                     status=status)
 
     class ConnectStatus:
         _lock = threading.Lock()
@@ -120,7 +126,7 @@ def find_cams_over_channel_access(prefix, *, cam_re=r'cam\d:', max_count=2,
     '''
 
     suffix_to_key = {
-        'ADCoreVersion_RBV': 'core_version',
+        'ADCoreVersion_RBV': 'adcore_version',
         'DriverVersion_RBV': 'driver_version',
         'Manufacturer_RBV': 'manufacturer',
         'Model_RBV': 'model',
@@ -143,7 +149,7 @@ def version_tuple_from_string(ver_string):
     return tuple(distutils.version.LooseVersion(ver_string).version)
 
 
-def get_cam_from_info(manufacturer, model, *, core_version=None,
+def get_cam_from_info(manufacturer, model, *, adcore_version=None,
                       driver_version=None,
                       default_class=ophyd.areadetector.cam.AreaDetectorCam):
     '''
@@ -151,15 +157,15 @@ def get_cam_from_info(manufacturer, model, *, core_version=None,
     '''
     cam_class = manufacturer_model_to_cam_class.get((manufacturer, model), default_class)
 
-    core_version = version_tuple_from_string(core_version)
+    adcore_version = version_tuple_from_string(adcore_version)
     if driver_version is not None:
         driver_version = version_tuple_from_string(driver_version)
-    # TODO mix in new base components using core_version
+    # TODO mix in new base components using adcore_version
     # TODO then cam is versioned on driver_version
     return cam_class
 
 
-def get_plugin_from_info(plugin_type, *, core_version):
+def get_plugin_from_info(plugin_type, *, adcore_version):
     '''
     Get a plugin class given its type and ADCore version
     '''
@@ -168,7 +174,7 @@ def get_plugin_from_info(plugin_type, *, core_version):
         plugin_type, _ = plugin_type.split(' ', 1)
 
     plugin_class = plugin_type_to_class[plugin_type]
-    return ophyd.select_version(plugin_class, core_version)
+    return ophyd.select_version(plugin_class, adcore_version)
 
 
 def find_plugins_over_channel_access(
@@ -225,7 +231,7 @@ def category_to_identifier(category):
 
 def create_detector_class(
         cams, plugins, default_core_version, *, class_name=None,
-        base_class=ophyd.ADBase):
+        base_class=ophyd.DetectorBase):
     '''
     Create a Detector class with the base `base_class`, including all cameras
     and plugins found from `find_cams_over_channel_access` and
@@ -248,7 +254,7 @@ def create_detector_class(
         logger.info('No cams found for prefix %s', prefix)
         return
 
-    core_version = default_core_version
+    adcore_version = default_core_version
 
     class_dict = {}
 
@@ -262,8 +268,8 @@ def create_detector_class(
                 logger.warning('Failed to get cam class', exc_info=ex)
                 continue
 
-            if 'core_version' in info:
-                core_version = version_tuple_from_string(info['core_version'])
+            if 'adcore_version' in info:
+                adcore_version = version_tuple_from_string(info['adcore_version'])
 
             attr = category_to_identifier(cam_suffix)
             class_dict[attr] = ophyd.Component(cam_cls, cam_suffix)
@@ -272,14 +278,14 @@ def create_detector_class(
         logger.info('No cams found for prefix %s', prefix)
         return
 
-    logger.debug('%s core version: %s', prefix, core_version)
+    logger.debug('%s core version: %s', prefix, adcore_version)
 
     logger.debug('%s plugin-related PVs connected %d', prefix,
                  plugins.connected_count)
     for plugin_suffix, info in sorted(plugins.info.items()):
         if info:
             try:
-                plugin_cls = get_plugin_from_info(**info, core_version=core_version)
+                plugin_cls = get_plugin_from_info(**info, adcore_version=adcore_version)
             except Exception as ex:
                 logger.warning('Failed to get plugin class', exc_info=ex)
             else:
