@@ -39,10 +39,32 @@ class DetectorModel(QtCore.QAbstractTableModel):
 
         return 'TODO'
 
-    def to_ophyd_class_code(self, prefix, class_name=None, *,
-                            base_class='DetectorBase'):
+    def to_ophyd_class(self, class_name, *, base_class=ophyd.DetectorBase):
+        class_dict = {}
+
+        for suffix, info in self.components.items():
+            if suffix in self.checked_components:
+                identifier = discovery.category_to_identifier(suffix)
+                attr = category_to_identifier(plugin_suffix)
+                class_dict[attr] = ophyd.Component(info['class_'], suffix)
+
+        return ophyd.device.create_device_from_components(
+            name=class_name,
+            docstring='Auto-generated AreaDetector instance from adviewer',
+            base_class=base_class,
+            **class_dict
+        )
+
+    def to_ophyd_class_code(self, prefix, class_name, *,
+                            base_class=ophyd.DetectorBase):
+        checked_components = {
+            suffix: component
+            for suffix, component in self.components.items()
+            if suffix in self.checked_components
+        }
+
         classes = {info['class_']
-                   for suffix, info in self.components.items()
+                   for suffix, info in checked_components.items()
                    }
         cam_classes = {cls for cls in classes
                        if issubclass(cls, ophyd.CamBase)
@@ -64,9 +86,9 @@ class DetectorModel(QtCore.QAbstractTableModel):
                 class_name = 'Detector' + class_name.lstrip('_').capitalize()
         driver_version = discovery.version_tuple_from_string(self.get_driver_version())
 
-        yield f'class {class_name}({base_class}, version={driver_version}):'
+        yield f'class {class_name}({base_class.__name__}, version={driver_version}):'
 
-        for suffix, info in self.components.items():
+        for suffix, info in checked_components.items():
             identifier = discovery.category_to_identifier(suffix)
             class_ = info['class_'].__name__
             yield f'    {identifier} = Cpt({class_}, {suffix!r})'
@@ -253,6 +275,8 @@ class DiscoveryWidget(QtWidgets.QFrame):
     def __init__(self, prefix=None, parent=None):
         super().__init__(parent=parent)
 
+        self.setMinimumSize(500, 400)
+
         self.view = DetectorView(prefix=prefix)
         self.layout = QtWidgets.QGridLayout()
 
@@ -268,6 +292,10 @@ class DiscoveryWidget(QtWidgets.QFrame):
         self.setLayout(self.layout)
 
         self.ophyd_class_button.clicked.connect(self.create_ophyd_class)
+        self.graph_button.clicked.connect(self.graph_open)
+
+    def graph_open(self):
+        ...
 
     def create_ophyd_class(self):
         model = self.view.model
@@ -275,7 +303,12 @@ class DiscoveryWidget(QtWidgets.QFrame):
             return
 
         prefix = self.view.prefix
-        code = '\n'.join(model.to_ophyd_class_code(prefix=prefix))
+        code = '\n'.join(
+            model.to_ophyd_class_code(
+                prefix=prefix,
+                class_name=discovery.class_name_from_prefix(prefix)
+            )
+        )
         print(f'\n\n{code}\n\n')
 
         editor = QtWidgets.QTextEdit()

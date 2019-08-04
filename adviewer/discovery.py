@@ -293,7 +293,7 @@ def create_detector_class(
                 class_dict[attr] = ophyd.Component(plugin_cls, plugin_suffix)
 
     if class_name is None:
-        class_name = category_to_identifier(prefix)
+        class_name = class_name_from_prefix(prefix)
 
     return ophyd.device.create_device_from_components(
         name=class_name,
@@ -301,6 +301,13 @@ def create_detector_class(
         base_class=base_class,
         **class_dict
     )
+
+
+def class_name_from_prefix(prefix):
+    class_name = category_to_identifier(prefix).capitalize()
+    if class_name.startswith('_'):
+        return 'Detector' + class_name.lstrip('_').capitalize()
+    return class_name
 
 
 if __name__ == '__main__':
