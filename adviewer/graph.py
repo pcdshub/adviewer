@@ -325,7 +325,8 @@ class PortGraphFlowchart(QtWidgets.QWidget):
 
         try:
             cam = self.monitor.cameras[0]
-            self.monitor.set_new_source(cam, dest)
+            if cam != dest:
+                self.monitor.set_new_source(cam, dest)
         except Exception as ex:
             raise_to_operator(ex)
 
@@ -463,7 +464,8 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.chart.flowchart_updated.connect(self.tree.update)
 
         self.chart.view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.chart.view.customContextMenuRequested.connect(self._user_context_menu)
+        self.chart.view.customContextMenuRequested.connect(
+            self._user_context_menu)
         self.tree.port_selected.connect(self._tree_port_selected)
         threading.Thread(target=self._startup).start()
 
