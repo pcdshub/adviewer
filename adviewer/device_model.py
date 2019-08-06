@@ -151,9 +151,6 @@ class DeviceView(QtWidgets.QTableView):
         # Set the property last
         self.device = device
 
-    def filter_string():
-        ...
-
     def clear(self):
         for model in self.models.values():
             model.stop()
@@ -191,6 +188,8 @@ class DeviceView(QtWidgets.QTableView):
 
 
 class DeviceWidget(QtWidgets.QFrame):
+    closed = Signal()
+
     def __init__(self, device, parent=None):
         super().__init__(parent=parent)
 
@@ -215,3 +214,4 @@ class DeviceWidget(QtWidgets.QFrame):
     def closeEvent(self, ev):
         super().closeEvent(ev)
         self.view.clear()
+        self.closed.emit()

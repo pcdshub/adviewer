@@ -438,6 +438,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
     def __init__(self, detector, *, parent=None):
         super().__init__(parent=parent)
 
+        self._device_widgets = {}
         self._interface_ready = threading.Event()
         self.detector = detector
         self.setWindowTitle(f'adviewer - {self.detector.name}')
@@ -462,9 +463,9 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.chart.scene.node_hovered.connect(self._user_node_hovered)
         self.chart.flowchart_updated.connect(self.tree.update)
 
-        self.chart.view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.chart.view.customContextMenuRequested.connect(
-            self._user_context_menu)
+        self.chart.scene.node_context_menu.connect(
+            self._node_context_menu)
+
         self.tree.port_selected.connect(self._tree_port_selected)
         threading.Thread(target=self._startup).start()
 
@@ -478,9 +479,28 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.chart.scene.clearSelection()
         self._user_node_hovered(node, pos=None)
 
-    def _user_context_menu(self, pos):
-        menu = self.createPopupMenu()
-        menu.exec_(self.chart.view.mapToGlobal(pos))
+    def _node_context_menu(self, node, pos):
+        port_name = node.model.port_name
+
+        def remove_widget():
+            self._device_widgets.pop(port_name, None)
+
+        def open_config_widget():
+            try:
+                widget = self._device_widgets[port_name]
+            except KeyError:
+                plugin = self.monitor.port_map[port_name]
+                widget = device_model.DeviceWidget(plugin)
+                widget.closed.connect(remove_widget)
+                self._device_widgets[port_name] = widget
+
+            widget.show()
+            widget.raise_()
+
+        menu = QtWidgets.QMenu()
+        menu.addAction(f'Configure {port_name}...', open_config_widget)
+        menu.exec_(self.chart.view.mapToGlobal(
+            QtCore.QPoint(pos.x(), pos.y())))
 
     def _user_node_hovered(self, node, pos):
         info = data_model.summarize_node(
