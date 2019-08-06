@@ -2,14 +2,13 @@ import asyncio
 import logging
 import threading
 
-from qtpy import QtWidgets, QtCore
+from qtpy import QtCore, QtWidgets
 
-from ophyd import CamBase
 import qtpynodeeditor
+from ophyd import CamBase
 from typhon.utils import raise_to_operator
 
-from . import utils
-from . import data_model
+from . import data_model, utils, device_model
 
 logger = logging.getLogger(__name__)
 

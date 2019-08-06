@@ -2,13 +2,12 @@ import logging
 import sys
 import threading
 
-from qtpy import QtWidgets, QtCore
+from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import Qt, Signal
 
 import ophyd
 
-from . import discovery
-from . import graph
+from . import discovery, graph
 
 logger = logging.getLogger(__name__)
 

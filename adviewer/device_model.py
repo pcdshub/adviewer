@@ -1,13 +1,12 @@
-import time
 import logging
+import time
 
-from qtpy import QtWidgets, QtCore
-from qtpy.QtCore import Qt, Signal, QThread, QSortFilterProxyModel
+from qtpy import QtCore, QtWidgets
+from qtpy.QtCore import QSortFilterProxyModel, Qt, QThread, Signal
 
 import ophyd
 
-from . import discovery
-from . import graph
+from . import discovery, graph
 
 logger = logging.getLogger(__name__)
 

@@ -1,15 +1,15 @@
 import distutils
 import logging
 import re
-import time
 import threading
+import time
 from functools import partial
 
 import epics
+
 import ophyd
 import ophyd.areadetector.cam
 import ophyd.areadetector.plugins
-
 
 logger = logging.getLogger(__name__)
 

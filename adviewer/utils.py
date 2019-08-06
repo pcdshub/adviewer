@@ -5,7 +5,6 @@ import networkx
 
 from ophyd import CamBase
 
-
 logger = logging.getLogger(__name__)
 
 

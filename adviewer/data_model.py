@@ -1,8 +1,8 @@
 import inspect
-import qtpynodeeditor
-import ophyd
-from ophyd.areadetector import plugins
 
+import ophyd
+import qtpynodeeditor
+from ophyd.areadetector import plugins
 
 models = {}
 
