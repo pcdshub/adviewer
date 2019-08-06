@@ -485,7 +485,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.chart.scene.clearSelection()
         self._user_node_hovered(node, pos=None)
 
-    def _node_context_menu(self, node, pos):
+    def _node_context_menu(self, node, scene_pos, screen_pos):
         port_name = node.model.port_name
 
         def remove_widget():
@@ -505,8 +505,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
 
         menu = QtWidgets.QMenu()
         menu.addAction(f'Configure {port_name}...', open_config_widget)
-        menu.exec_(self.chart.view.mapToGlobal(
-            QtCore.QPoint(pos.x(), pos.y())))
+        menu.exec_(screen_pos)
 
     def _user_node_hovered(self, node, pos):
         info = data_model.summarize_node(
