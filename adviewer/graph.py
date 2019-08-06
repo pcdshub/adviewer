@@ -394,6 +394,8 @@ class PortGraphFlowchart(QtWidgets.QWidget):
                                      connections={},
                                      )
 
+        first_update = not self._edges
+
         for src, dest in edges_added:
             try:
                 src_node = self._nodes[src]['node']
@@ -420,7 +422,7 @@ class PortGraphFlowchart(QtWidgets.QWidget):
                     self._nodes[src]['connections'][dest] = connection
                     self._nodes[dest]['connections'][src] = connection
 
-        if self._auto_position:
+        if self._auto_position or first_update:
             positions = utils.position_nodes(
                 self._edges, self.port_map,
                 x_spacing=150.0,  # TODO less magic numbers
