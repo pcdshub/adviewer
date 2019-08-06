@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import threading
 
@@ -219,9 +220,14 @@ class PortGraphMonitor(QtCore.QObject):
                 for port, plugin in self.port_map.items()
                 if isinstance(plugin, CamBase)]
 
-    def _port_changed_callback(self, value=None, obj=None, **kwargs):
-        logger.debug('Source port of %s changed to %s', obj.name, value)
-        self.update_ports()
+    def _port_changed_callback(self, dest, value=None, obj=None, **kwargs):
+        edge = (value, dest)
+        with self.lock:
+            new_edge = edge not in self.edges
+
+        if new_edge:
+            logger.debug('Port changed: %s -> %s', *edge)
+            self.update_ports()
 
     def update_ports(self):
         'Read the port digraph/dictionary from the detector and emit updates'
@@ -234,7 +240,8 @@ class PortGraphMonitor(QtCore.QObject):
                     logger.debug('Subscribing to port %s (%s) NDArrayPort',
                                  port, plugin.name)
                     self._subscriptions[port] = plugin.nd_array_port.subscribe(
-                        self._port_changed_callback, run=False)
+                        functools.partial(self._port_changed_callback, port),
+                        run=False)
 
             ports_removed = list(sorted(set(self.known_ports) - set(port_map)))
             ports_added = list(sorted(set(port_map) - set(self.known_ports)))
@@ -292,7 +299,6 @@ class PortGraphFlowchart(QtWidgets.QWidget):
 
         self.registry = qtpynodeeditor.DataModelRegistry()
         for ophyd_cls, model in data_model.models.items():
-            print('Register model', ophyd_cls, model, model.name)
             self.registry.register_model(model, category='Area Detector')
 
         self.scene = qtpynodeeditor.FlowScene(
