@@ -4,10 +4,11 @@ codecov
 coverage
 flake8
 pytest
-sphinx
+pytest-qt
+
 # These are dependencies of various sphinx extensions for documentation.
 ipython
-matplotlib
+sphinx
 numpydoc
 sphinx-copybutton
 sphinx_rtd_theme

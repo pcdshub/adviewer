@@ -18,6 +18,11 @@ requirements:
 
     run:
       - python
+      - networkx
+      - ophyd
+      - typhon
+      - qtpy
+      - qt
 
 test:
     imports:
@@ -29,4 +34,4 @@ test:
 about:
   home: https://github.com/pcdshub/adviewer
   license: SLAC Open License
-  summary: A short description of the project.
+  summary: AreaDetector configuration and viewing tool

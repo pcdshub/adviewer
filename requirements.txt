@@ -1,10 +1,6 @@
-awscli
-coloredlogs
-coverage
-doctr
-flake8
-jupyter
-pytest
-sphinx
-sphinx_rtd_theme
+git+https://github.com/nsls-ii/ophyd
+git+https://github.com/klauer/qtpynodeeditor
+git+https://github.com/pcdshub/typhon
+networkx
+qtpy
 versioneer

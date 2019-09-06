@@ -1,127 +1,90 @@
-"""
-Script for small utility functions used in adviewer
-"""
-############
-# Standard #
-############
-import os
-import inspect
+import collections
 import logging
-import logging.config
-from pathlib import Path
-from logging.handlers import RotatingFileHandler
 
-###############
-# Third Party #
-###############
-import yaml
-import coloredlogs
+import networkx
+
+from ophyd import CamBase
 
 logger = logging.getLogger(__name__)
 
-class RotatingFileHandlerRelativePath(logging.handlers.RotatingFileHandler):
-    """
-    Extension of the filehandler class that appends the current directory to the
-    inputted filename. This is so the log files can be found relative to this 
-    file rather than from wherever the script is run.
-    """
-    def __init__(self, filename, *args, **kwargs):
-        filename_full = os.path.join(os.path.dirname(__file__), filename)
-        super().__init__(filename_full, *args, **kwargs)
+
+def break_cycles(edges):
+    '''Break any graph cycles present in the list of edges'''
+    dig = networkx.digraph.DiGraph()
+    for src, dest in edges:
+        dig.add_edge(src, dest)
+
+    while True:
+        try:
+            cycle = networkx.find_cycle(dig)
+        except networkx.NetworkXNoCycle:
+            break
+
+        src, dest = cycle[-1]
+        logger.warning('Found cycles in port graph: %s; breaking at %s->%s',
+                       cycle, src, dest)
+
+        dig.remove_edge(src, dest)
+        edges.remove((src, dest))
+
+    return edges
 
 
-def absolute_submodule_path(submodule, cur_dir=inspect.stack()[0][1]):
-    """
-    Returns the absolute path of the inputted adviewer submodule 
-    based on an inputtet absolute path, or the absolute path of this file.
-
-    Parameters
-    ----------
-    submodule : str or Path
-        Desired submodule path.
-
-    cur_dir : str or Path, optional
-        Absolute path to use as a template for the full submodule path.
-
-    Returns
-    -------
-    full_path : str
-        Full string path to the inputted submodule.
-    """
-    dir_parts = Path(cur_dir).parts
-    sub_parts = Path(submodule).parts
-    base_path = Path(*dir_parts[:dir_parts.index(sub_parts[0])])
-    if str(base_path) == ".":
-        logger.warning("Could not match base path with desired submodule.")
-    full_path = base_path / Path(submodule)
-    return str(full_path)
-
-DIR_MODULE = Path(absolute_submodule_path("adviewer/"))
-DIR_LOGS = DIR_MODULE / "logs"
-
-def setup_logging(path_yaml=None, dir_logs=None, default_level=logging.INFO):
-    """
-    Sets up the logging module to make a properly configured logger.
-
-    This will go into the ``logging.yml`` file in the top level directory, and
-    try to load the logging configuration. If it fails for any reason, it will
-    just use the default configuration. For more details on how the logger will
-    be configured, see the ``logging.yml`` file.
+def position_nodes(edges, port_map, *, x_spacing, y_spacing, x=0, y=0):
+    '''
+    Generate an (x, y) position dictionary for all nodes in the port dictionary
 
     Parameters
     ----------
-    path_yaml : str or Path, optional
-        Path to the yaml file.
+    edges : list of (src, dest)
+        Directed graph edges that connect source -> destination ports
+    port_map : dict
+        Dictionary of port name to ophyd plugin
+    x_spacing : float
+        Horizontal spacing between items
+    y_spacing : float
+        Horizontal spacing between items
+    x : float, optional
+        Starting x position
+    y : float, optional
+        Starting y position
+    '''
+    def position_port(port, x, y):
+        if y < y_minimum[x]:
+            y = y_minimum[x]
 
-    dir_logs : str or Path, optional
-        Path to the log directory.
-        
-    default_level : logging.LEVEL, optional
-        Logging level for the default logging setup if the yaml fails.
-    """
-    # Get the yaml path
-    if path_yaml is None:
-        path_yaml = DIR_MODULE / "logging.yml"
-    # Make sure we are using Path objects
-    else: 
-        path_yaml = Path(path_yaml)
-    # Get the log directory
-    if dir_logs is None:
-        dir_logs = DIR_LOGS
-    # Make sure we are using Path objects
-    else:
-        dir_logs = Path(dir_logs)
-        
-    # Make the log directory if it doesn't exist
-    if not dir_logs.exists(): 
-        dir_logs.mkdir()
+        y_minimum[x] = y + y_spacing
 
-    log_files = ['info.log', 'errors.log', 'debug.log',  'critical.log', 
-                 'warn.log']
-    for log_file in log_files:
-        path_log_file = dir_logs / log_file
-        # Make the log files if they don't exist
-        if not path_log_file.exists():
-            path_log_file.touch()
-        # Set permissions to be accessible to everyone
-        if path_log_file.stat().st_mode != 33279:
-            path_log_file.chmod(0o777)        
+        positions[port] = (x, y)
+        dests = [dest for src, dest in edges
+                 if src == port
+                 and src != dest
+                 and dest not in positions]
+        y -= y_spacing * (len(dests) // 2)
+        for idx, dest in enumerate(sorted(dests)):
+            position_port(dest, x + x_spacing, y + idx * y_spacing)
 
-    # Set up everything if the yaml file is present
-    if path_yaml.exists():
-        with open(path_yaml, 'rt') as f:
-            try:
-                config = yaml.safe_load(f.read())
-                logging.config.dictConfig(config)
-                coloredlogs.install()
-            except Exception as e:
-                print('Error in Logging Configuration. Using default configs')
-                logging.basicConfig(level=default_level)
-                logging.error(e)
-                coloredlogs.install(level=default_level)
+    cameras = [port for port, cam in port_map.items()
+               if isinstance(cam, CamBase)]
 
-    # Just use the normal configuration
-    else:
-        logging.basicConfig(level=default_level)
-        coloredlogs.install(level=default_level)
-        print('Failed to load configuration file. Using default configs')
+    y_minimum = collections.defaultdict(lambda: -len(port_map) * y_spacing)
+
+    start_x = x
+    positions = {}
+
+    def get_next_y():
+        if positions:
+            return y_spacing + max(y for x, y in positions.values())
+        else:
+            return 0
+
+    # Start with all of the cameras and the plugins connected
+    for camera in sorted(cameras):
+        position_port(camera, start_x, get_next_y())
+
+    # Add any ports that are otherwise unconnected
+    for port in port_map:
+        if port not in positions:
+            position_port(port, start_x, get_next_y())
+
+    return positions

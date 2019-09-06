@@ -1,7 +1,9 @@
-import versioneer
-from os import path
-from setuptools import setup, find_packages
 import sys
+from os import path
+
+from setuptools import find_packages, setup
+
+import versioneer
 
 min_version = (3, 5)
 
@@ -35,7 +37,9 @@ git_requirements = [r for r in requirements if r.startswith('git+')]
 if git_requirements:
     print('User must install the following packages manually:')
     print()
-    print("\n".join(f'* {r}' for r in git_requirements))
+    for req in git_requirements:
+        requirements.remove(req)
+        print('* {}'.format(req))
     print()
 
 
