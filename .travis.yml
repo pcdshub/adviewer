@@ -28,25 +28,6 @@ matrix:
     - python: 3.7
 
 install:
-  # Install and configure miniconda
-  - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
-  - bash miniconda.sh -b -p $HOME/miniconda
-  - export PATH="$HOME/miniconda/bin:$PATH"
-  - hash -r
-  - conda config --set always_yes yes --set changeps1 no
-
-  # Ensure all packages are up-to-date
-  - conda update -q conda
-  - conda install conda-build anaconda-client
-  - conda config --append channels $PCDS_CHANNEL
-  - conda config --append channels conda-forge
-  - conda info -a
-
-  # Create the test environment
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION
-  - source deactivate
-  - source activate test-environment
-
   # Install additional development requirements
   - pip install -U -r dev-requirements.txt -r requirements.txt
   - pip install PyQt5
@@ -79,14 +60,3 @@ script:
 after_success:
   - coverage report -m
   - codecov
-
-  - |
-    if [[ $TRAVIS_PULL_REQUEST == false && $TRAVIS_REPO_SLUG == $OFFICIAL_REPO && "$CONDA_UPLOAD" == "1" ]]; then
-      if [[ $TRAVIS_BRANCH == $TRAVIS_TAG  && $TRAVIS_TAG != '' && $PCDS_CHANNEL == 'pcds-tag' ]]; then
-        export ANACONDA_API_TOKEN=$CONDA_UPLOAD_TOKEN_TAG
-        anaconda upload bld-dir/linux-64/*.tar.bz2
-      elif [[ $TRAVIS_BRANCH == 'master' && $TRAVIS_TAG == '' && $PCDS_CHANNEL == 'pcds-dev' ]]; then
-        export ANACONDA_API_TOKEN=$CONDA_UPLOAD_TOKEN_DEV
-        anaconda upload bld-dir/linux-64/*.tar.bz2
-      fi
-    fi
