@@ -1,39 +1,31 @@
 language: python
 dist: xenial
 
-sudo: true
+services:
+    - xvfb
 
+addons:
+    apt:
+      packages:
+        - herbstluftwm
+        - libxkbcommon-x11-0
 
 env: 
    global:
       - OFFICIAL_REPO="pcdshub/adviewer"
       - BUILD_DOCS=1
-      
       - secure: ""
-      
 
 cache:
   directories:
     - $HOME/.cache/pip
-    - $HOME/.ccache  # https://github.com/travis-ci/travis-ci/issues/5853
 
 matrix:
   include:
     - python: 3.6
       env:
         - CONDA_UPLOAD=1
-        - PCDS_CHANNEL=pcds-tag
-    - python: 3.6
-      env: PCDS_CHANNEL=pcds-dev
     - python: 3.7
-      env: PCDS_CHANNEL=pcds-tag
-    - python: 3.7
-      env: PCDS_CHANNEL=pcds-dev
-  allow_failures:
-    - python: 3.7
-      env: PCDS_CHANNEL=pcds-tag
-    - python: 3.7
-      env: PCDS_CHANNEL=pcds-dev
 
 install:
   # Install and configure miniconda
@@ -64,17 +56,9 @@ install:
 
 
 before_script:
-  - sudo apt-get update
-  # Install window manager
-  - sudo apt-get install -y xvfb herbstluftwm
-  # Taken from docs.travis-ci.com/user/gui-and-headless-browsers
-  - "export DISPLAY=:99.0"
-  - "/sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -screen 0 1920x1200x24 -ac +extension GLX +render -noreset"
-  - sleep 3 # give xvfb some time to start
-  # Run windows manager
+  # Run the window manager
   - "herbstluftwm &"
   - sleep 1
-
 
 script:
   - flake8 adviewer
