@@ -1,6 +1,6 @@
 git+https://github.com/nsls-ii/ophyd
 git+https://github.com/klauer/qtpynodeeditor
+git+https://github.com/pcdshub/typhon
 networkx
 qtpy
-typhon
 versioneer
