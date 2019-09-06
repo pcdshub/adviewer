@@ -57,6 +57,8 @@ install:
 
   # Install additional development requirements
   - pip install -U -r dev-requirements.txt -r requirements.txt
+  - pip install PyQt5
+
   # Install the package
   - pip install -e .
 
