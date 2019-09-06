@@ -73,7 +73,8 @@ class DetectorModel(QtCore.QAbstractTableModel):
         cam_imports = ', '.join(sorted(cls.__name__ for cls in cam_classes))
         yield f'from ophyd.areadetector.cam import ({cam_imports})'
 
-        plugin_imports = ', '.join(sorted(cls.__name__ for cls in plugin_classes))
+        plugin_imports = ', '.join(
+            sorted(cls.__name__ for cls in plugin_classes))
         yield f'from ophyd.areadetector.plugins import ({plugin_imports})'
 
         yield ''
@@ -82,9 +83,11 @@ class DetectorModel(QtCore.QAbstractTableModel):
             class_name = discovery.category_to_identifier(prefix).capitalize()
             if class_name.startswith('_'):
                 class_name = 'Detector' + class_name.lstrip('_').capitalize()
-        driver_version = discovery.version_tuple_from_string(self.get_driver_version())
+        driver_version = discovery.version_tuple_from_string(
+            self.get_driver_version())
 
-        yield f'class {class_name}({base_class.__name__}, version={driver_version}):'
+        yield (f'class {class_name}({base_class.__name__}, '
+               f'version={driver_version}):')
 
         for suffix, info in checked_components.items():
             identifier = discovery.category_to_identifier(suffix)
@@ -102,7 +105,8 @@ class DetectorModel(QtCore.QAbstractTableModel):
     @adcore_version.setter
     def adcore_version(self, adcore_version):
         if isinstance(adcore_version, str):
-            adcore_version = discovery.version_tuple_from_string(adcore_version)
+            adcore_version = discovery.version_tuple_from_string(
+                adcore_version)
 
         self._adcore_version = adcore_version
         if adcore_version is not None:
@@ -195,9 +199,9 @@ class DetectorFromChannelAccessModel(DetectorModel):
         self.lock = threading.RLock()
         self.pending_plugins = []
         self.cams = discovery.find_cams_over_channel_access(
-                prefix, callback=self._cam_callback)
+            prefix, callback=self._cam_callback)
         self.plugins = discovery.find_plugins_over_channel_access(
-                prefix, callback=self._plugin_callback)
+            prefix, callback=self._plugin_callback)
 
         self.component_updated.connect(self._update_component)
         self.have_adcore_version.connect(self._adcore_version_received)
@@ -220,7 +224,6 @@ class DetectorFromChannelAccessModel(DetectorModel):
                 category, cls, self.cams.info[category]
             )
 
-
     def _plugin_callback(self, *, category, **kwargs):
         with self.lock:
             if not self.adcore_version:
@@ -231,7 +234,9 @@ class DetectorFromChannelAccessModel(DetectorModel):
 
             try:
                 cls = discovery.get_plugin_from_info(
-                    adcore_version=self.adcore_version, **self.plugins.info[category])
+                    adcore_version=self.adcore_version,
+                    **self.plugins.info[category]
+                )
             except Exception as ex:
                 logger.error('get_plugin_from_info failed', exc_info=ex)
                 return
@@ -274,9 +279,9 @@ class DetectorView(QtWidgets.QTableView):
             self.setModel(model)
 
             header = self.horizontalHeader()
-            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
-            header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
-            header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
+            for col in range(3):
+                header.setSectionResizeMode(
+                    col, QtWidgets.QHeaderView.ResizeToContents)
 
 
 class DiscoveryWidget(QtWidgets.QFrame):

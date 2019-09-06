@@ -10,6 +10,7 @@ import epics
 import ophyd
 import ophyd.areadetector.cam
 import ophyd.areadetector.plugins
+from ophyd import areadetector
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +18,14 @@ logger = logging.getLogger(__name__)
 _RE_NONALPHA = re.compile('[^0-9a-zA-Z_]+')
 
 # semi-private dict in ophyd
-plugin_type_to_class = dict(ophyd.areadetector.plugins._plugin_class)
+plugin_type_to_class = dict(areadetector.plugins._plugin_class)
 
 # Some plugins do not report correctly. This may need to be user-customizable
 # at some point:
-plugin_type_to_class['NDPluginFile'] = ophyd.areadetector.plugins.NexusPlugin
+plugin_type_to_class['NDPluginFile'] = areadetector.plugins.NexusPlugin
 
 manufacturer_model_to_cam_class = {
-    ('Simulated detector', 'Basic simulator'): ophyd.areadetector.cam.SimDetectorCam,
+    ('Simulated detector', 'Basic simulator'): areadetector.cam.SimDetectorCam,
 }
 plugin_suffix_regex_to_class = {
     plugin_cls._suffix_re: plugin_cls
@@ -58,8 +59,7 @@ def connect_to_many(prefix, pv_to_category_and_key, callback):
     '''
     def connected(category, key, pv, conn, **kwargs):
         if not conn:
-            logger.debug('Disconnected from %s (%s, %s)=%s', pv, category, key,
-                         value)
+            logger.debug('Disconnected from %s (%s, %s)=%s', pv, category, key)
             return
 
         value = pv.get()
@@ -155,7 +155,8 @@ def get_cam_from_info(manufacturer, model, *, adcore_version=None,
     '''
     Get a camera class given at least its manufacturer and model
     '''
-    cam_class = manufacturer_model_to_cam_class.get((manufacturer, model), default_class)
+    cam_class = manufacturer_model_to_cam_class.get(
+        (manufacturer, model), default_class)
 
     adcore_version = version_tuple_from_string(adcore_version)
     if driver_version is not None:
@@ -269,7 +270,8 @@ def create_detector_class(
                 continue
 
             if 'adcore_version' in info:
-                adcore_version = version_tuple_from_string(info['adcore_version'])
+                adcore_version = version_tuple_from_string(
+                    info['adcore_version'])
 
             attr = category_to_identifier(cam_suffix)
             class_dict[attr] = ophyd.Component(cam_cls, cam_suffix)
@@ -285,7 +287,8 @@ def create_detector_class(
     for plugin_suffix, info in sorted(plugins.info.items()):
         if info:
             try:
-                plugin_cls = get_plugin_from_info(**info, adcore_version=adcore_version)
+                plugin_cls = get_plugin_from_info(
+                    **info, adcore_version=adcore_version)
             except Exception as ex:
                 logger.warning('Failed to get plugin class', exc_info=ex)
             else:

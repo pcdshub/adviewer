@@ -4,9 +4,6 @@ import time
 from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import QSortFilterProxyModel, Qt, QThread, Signal
 
-import ophyd
-
-from . import discovery, graph
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +118,7 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         attr, info = self._row_to_data(row)
 
         if role == Qt.DisplayRole:
-            value = attr
+            # value = attr
             columns = {
                 0: attr,
                 1: info['readback'],

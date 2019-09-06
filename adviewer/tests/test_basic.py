@@ -192,8 +192,8 @@ def test_graph_connect_output_to_input(qtbot, fake_detector, flow_chart):
 def test_tree_drag(qtbot, flow_chart, tree):
     reload_graph(qtbot, flow_chart)
 
-    roi1 = tree.port_to_item['roi1']
-    tiff1 = tree.port_to_item['tiff1']
+    tree.port_to_item['roi1']
+    tree.port_to_item['tiff1']
     # qtbot.mousePress(tree, QtCore.Qt.LeftButton, pos=roi1.pos())
     # qtbot.mouseMove(tree, pos=tiff1.pos())
     # qtbot.mouseRelease(tree, pos=roi1.pos())
