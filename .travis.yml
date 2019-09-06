@@ -50,13 +50,8 @@ install:
   - conda config --append channels conda-forge
   - conda info -a
 
-  # Build the conda recipe for this package
-  - conda build -q conda-recipe --python=$TRAVIS_PYTHON_VERSION --output-folder bld-dir
-  - conda config --add channels "file://`pwd`/bld-dir"
-
   # Create the test environment
-  - sed -e s/^git.*// requirements.txt > conda_requirements.txt
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION adviewer --file conda_requirements.txt
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION
   - source deactivate
   - source activate test-environment
 
