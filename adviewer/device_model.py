@@ -4,6 +4,8 @@ import time
 from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import QSortFilterProxyModel, Qt, QThread, Signal
 
+import ophyd.device
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,20 @@ class _DevicePollThread(QThread):
     def run(self):
         self.running = True
         attrs = set(self.data)
+
+        # Instantiate all signals first
+        with ophyd.device.do_not_wait_for_lazy_connection(self.device):
+            for attr in list(attrs):
+                try:
+                    getattr(self.device, attr)
+                except Exception:
+                    logger.exception(
+                        'Poll thread for %s.%s @ %.3f sec failure '
+                        'on initial access',
+                        self.device.name, attr, self.poll_rate
+                    )
+                    attrs.remove(attr)
+
         while self.running:
             t0 = time.monotonic()
             for attr in list(attrs):
