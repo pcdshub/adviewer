@@ -190,6 +190,8 @@ class DeviceWidget(QtWidgets.QFrame):
     def __init__(self, device, parent=None):
         super().__init__(parent=parent)
 
+        self.setWindowTitle(device.name)
+
         self.setMinimumSize(500, 400)
 
         self.filter_label = QtWidgets.QLabel('&Filter')

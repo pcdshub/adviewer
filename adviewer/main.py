@@ -288,6 +288,8 @@ class DiscoveryWidget(QtWidgets.QFrame):
     def __init__(self, prefix=None, parent=None):
         super().__init__(parent=parent)
 
+        self.setWindowTitle('adviewer: Channel Access search')
+
         self.setMinimumSize(500, 400)
 
         self.view = DetectorView(prefix=prefix)
