@@ -220,41 +220,39 @@ class PortGraphMonitor(QtCore.QObject):
                 for port, plugin in self.port_map.items()
                 if isinstance(plugin, CamBase)]
 
+    @utils.locked
     def _port_changed_callback(self, dest, value=None, obj=None, **kwargs):
         edge = (value, dest)
-        with self.lock:
-            new_edge = edge not in self.edges
+        new_edge = edge not in self.edges
 
         if new_edge:
             logger.debug('Port changed: %s -> %s', *edge)
-            self.update_ports()
+            self._update_ports()
 
-    def update_ports(self):
-        'Read the port digraph/dictionary from the detector and emit updates'
-        with self.lock:
-            port_map = self.port_map
-            edges = utils.break_cycles(self.get_edges())
-            for port, plugin in sorted(port_map.items()):
-                if (port not in self._subscriptions and
-                        hasattr(plugin, 'nd_array_port')):
-                    logger.debug('Subscribing to port %s (%s) NDArrayPort',
-                                 port, plugin.name)
-                    self._subscriptions[port] = plugin.nd_array_port.subscribe(
-                        functools.partial(self._port_changed_callback, port),
-                        run=False)
+    def _update_ports(self):
+        port_map = self.port_map
+        edges = utils.break_cycles(self.get_edges())
+        for port, plugin in sorted(port_map.items()):
+            if (port not in self._subscriptions and
+                    hasattr(plugin, 'nd_array_port')):
+                logger.debug('Subscribing to port %s (%s) NDArrayPort',
+                             port, plugin.name)
+                self._subscriptions[port] = plugin.nd_array_port.subscribe(
+                    functools.partial(self._port_changed_callback, port),
+                    run=False)
 
-            ports_removed = list(sorted(set(self.known_ports) - set(port_map)))
-            ports_added = list(sorted(set(port_map) - set(self.known_ports)))
-            edges_removed = list(sorted(set(self.edges) - set(edges)))
-            edges_added = list(sorted((set(edges) - set(self.edges))))
+        ports_removed = list(sorted(set(self.known_ports) - set(port_map)))
+        ports_added = list(sorted(set(port_map) - set(self.known_ports)))
+        edges_removed = list(sorted(set(self.edges) - set(edges)))
+        edges_added = list(sorted((set(edges) - set(self.edges))))
 
-            self.edges = edges
-            self.known_ports = list(port_map)
+        self.edges = edges
+        self.known_ports = list(port_map)
 
-            for port in ports_removed:
-                sub = self._subscriptions.pop(port, None)
-                if sub is not None:
-                    plugin = port_map[port].nd_array_port.unsubscribe(sub)
+        for port in ports_removed:
+            sub = self._subscriptions.pop(port, None)
+            if sub is not None:
+                plugin = port_map[port].nd_array_port.unsubscribe(sub)
 
         for port in ports_removed:
             self.port_removed.emit(port)
@@ -271,6 +269,11 @@ class PortGraphMonitor(QtCore.QObject):
         if ports_removed or ports_added or edges_removed or edges_added:
             self.update.emit(ports_removed, ports_added, edges_removed,
                              edges_added)
+
+    def update_ports(self):
+        'Read the port digraph/dictionary from the detector and emit updates'
+        with self.lock:
+            self._update_ports()
 
 
 class PortGraphFlowchart(QtWidgets.QWidget):
