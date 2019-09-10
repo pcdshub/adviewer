@@ -39,11 +39,18 @@ class _DevicePollThread(QThread):
         while self.running:
             t0 = time.monotonic()
             for attr in list(attrs):
+                setpoint = None
                 try:
                     sig = getattr(self.device, attr)
+
+                    if hasattr(sig, 'get_setpoint'):
+                        setpoint = sig.get_setpoint()
+                    elif hasattr(sig, 'setpoint'):
+                        setpoint = sig.setpoint
+
                     self.data[attr].update(
                         readback=sig.get(),
-                        setpoint=getattr(sig, 'setpoint', ''),
+                        setpoint=setpoint,
                     )
                 except Exception:
                     logger.exception(
