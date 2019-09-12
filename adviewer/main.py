@@ -214,8 +214,12 @@ class DetectorFromChannelAccessModel(DetectorModel):
 
     def _cam_callback(self, *, pv, category, **kwargs):
         with self.lock:
+            cam_info = dict(self.cams.info[category])
+            if not all(key in cam_info for key in ('model', 'manufacturer', )):
+                return
+
             try:
-                cls = discovery.get_cam_from_info(**self.cams.info[category])
+                cls = discovery.get_cam_from_info(**cam_info)
             except Exception as ex:
                 logger.debug('get_cam_from_info failed', exc_info=ex)
                 return
@@ -283,6 +287,14 @@ class DetectorView(QtWidgets.QTableView):
                 header.setSectionResizeMode(
                     col, QtWidgets.QHeaderView.ResizeToContents)
 
+    @property
+    def pvlist(self):
+        ...
+
+    @pvlist.setter
+    def pvlist(self, pvlist):
+        ...
+
 
 class DiscoveryWidget(QtWidgets.QFrame):
     def __init__(self, prefix=None, parent=None):
@@ -296,19 +308,72 @@ class DiscoveryWidget(QtWidgets.QFrame):
         self.layout = QtWidgets.QGridLayout()
 
         self.prefix_edit = QtWidgets.QLineEdit(prefix)
+
+        self.load_pvlist_button = QtWidgets.QToolButton(self)
+        self.load_pvlist_button.setToolTip('&Load PV list...')
+        self.load_pvlist_button.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.SP_DialogOpenButton)
+        )
+        self.load_pvlist_button.clicked.connect(self.load_pvlist)
+
+        self.save_pvlist_button = QtWidgets.QToolButton(self)
+        self.save_pvlist_button.setToolTip('&Save PV list...')
+        self.save_pvlist_button.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.SP_DialogSaveButton)
+        )
+        self.save_pvlist_button.clicked.connect(self.save_pvlist)
+
         self.ophyd_class_button = QtWidgets.QPushButton('Ophyd Class...')
         self.graph_button = QtWidgets.QPushButton('Node Graph...')
 
         self.layout.addWidget(QtWidgets.QLabel('Prefix'), 0, 0)
         self.layout.addWidget(self.prefix_edit, 0, 1)
+
         self.layout.addWidget(self.view, 1, 0, 1, 2)
-        self.layout.addWidget(self.ophyd_class_button, 2, 0)
-        self.layout.addWidget(self.graph_button, 2, 1)
+
+        self.button_frame = QtWidgets.QFrame()
+        self.layout.addWidget(self.button_frame, 2, 0, 2, 0)
         self.setLayout(self.layout)
+
+        frame_layout = QtWidgets.QHBoxLayout()
+        frame_layout.addWidget(self.load_pvlist_button)
+        frame_layout.addWidget(self.save_pvlist_button)
+        frame_layout.addWidget(self.ophyd_class_button)
+        frame_layout.addWidget(self.graph_button)
+        self.button_frame.setLayout(frame_layout)
 
         self.prefix_edit.returnPressed.connect(self.prefix_changed)
         self.ophyd_class_button.clicked.connect(self.create_ophyd_class)
         self.graph_button.clicked.connect(self.graph_open)
+
+    def load_pvlist(self, filename=None):
+        if not filename:
+            filename, filter_ = QtWidgets.QFileDialog.getOpenFileName(
+                self, 'Load PV list', '.',
+                'PV list (*.pvlist;*.txt);;All files (*.*)'
+            )
+            if not filename:
+                return
+
+        logger.info('Loading PV list from %s', filename)
+        with open(filename, 'rt') as f:
+            pvlist = f.read().splitlines()
+
+        self.view.pvlist = pvlist
+
+    def save_pvlist(self, filename=None):
+        if not filename:
+            filename, filter_ = QtWidgets.QFileDialog.getSaveFileName(
+                self, 'Save PV list', '.',
+                'PV list (*.pvlist;*.txt);;All files (*.*)'
+            )
+            if not filename:
+                return
+
+        logger.info('Saving PV list to %s', filename)
+        with open(filename, 'wt') as f:
+            for pv in self.view.pvlist:
+                print(pv, file=f)
 
     def prefix_changed(self):
         new_prefix = self.prefix_edit.text().strip()
@@ -353,7 +418,10 @@ class DiscoveryWidget(QtWidgets.QFrame):
 
 
 if __name__ == '__main__':
+    logging.basicConfig()
+    logger.setLevel('DEBUG')
     app = QtWidgets.QApplication(sys.argv)
     w = DiscoveryWidget(prefix='13SIM1:')
     w.show()
+    w.load_pvlist('simdet.pvlist')
     app.exec_()

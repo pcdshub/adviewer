@@ -1,8 +1,10 @@
 import distutils
 import logging
+import os
 import re
 import threading
 import time
+
 from functools import partial
 
 import epics
@@ -307,10 +309,63 @@ def create_detector_class(
 
 
 def class_name_from_prefix(prefix):
+    '''
+    Create a Python identifier for the detector to be used as the class name
+    '''
     class_name = category_to_identifier(prefix).capitalize()
     if class_name.startswith('_'):
         return 'Detector' + class_name.lstrip('_').capitalize()
     return class_name
+
+
+def cams_and_plugins_from_pvlist(pvs, callback):
+    '''
+    Given a list of PVs from an AreaDetector IOC, search for cameras and
+    plugins
+    '''
+
+    def matching_prefixes(suffix):
+        for pv in sorted(pvs):
+            if pv.endswith(suffix):
+                yield ':'.join(pv.split(':')[:-1]) + ':'
+
+    version_pv_found = False
+    cam_prefixes = list(matching_prefixes(':Manufacturer_RBV'))
+    cam_query = {}
+
+    for idx, cam_prefix in enumerate(cam_prefixes, 1):
+        cam_category = f'cam{idx}'
+        cam_query.update(
+            {f'{cam_prefix}{suffix}': (cam_category, key)
+             for suffix, key in (('Manufacturer_RBV', 'manufacturer'),
+                                 ('Model_RBV', 'model'),
+                                 ('PortName_RBV', 'port')
+                                 )
+             }
+        )
+        version_pv = f'{cam_prefix}ADCoreVersion_RBV'
+        if version_pv in pvs:
+            cam_query[version_pv] = (cam_category, 'version')
+            version_pv_found = True
+
+    plugin_query = {
+        f'{prefix}PluginType_RBV': (f'plugin{idx}', 'plugin_type')
+        for idx, prefix in enumerate(matching_prefixes(':PluginType_RBV'), 1)
+    }
+
+    def inner_callback(pv, category, key, value, status):
+        return callback(pv=pv, category=category, key=key, value=value,
+                        status=status)
+
+    prefix = os.path.commonprefix(list(cam_query) + list(plugin_query))
+    cams = connect_to_many(prefix, cam_query, inner_callback)
+    if not version_pv_found:
+        # No ADCoreVersion found, assume the worst - R1-9-1
+        for key, info_dict in cams.info.items():
+            info_dict['version'] = '1.9.1'
+
+    plugins = connect_to_many(prefix, plugin_query, inner_callback)
+    return cams, plugins
 
 
 if __name__ == '__main__':
@@ -320,8 +375,15 @@ if __name__ == '__main__':
     logger.addHandler(handler)
     logging.basicConfig()
 
-    prefix = '13SIM1:'
-    cams = find_cams_over_channel_access(prefix)
-    plugins = find_plugins_over_channel_access(prefix)
-    time.sleep(1.5)
-    cls = create_detector_class(cams, plugins, default_core_version=(1, 9, 1))
+    # prefix = '13SIM1:'
+    # cams = find_cams_over_channel_access(prefix)
+    # plugins = find_plugins_over_channel_access(prefix)
+    # time.sleep(1.5)
+    # cls = create_detector_class(cams, plugins, default_core_version=(1, 9, 1))
+
+    def callback(*args, **kwargs):
+        # print('callback')
+        ...
+
+    pvlist = open('simdet.pvlist', 'rt').read().splitlines()
+    cams, plugins = cams_and_plugins_from_pvlist(pvlist, callback)
