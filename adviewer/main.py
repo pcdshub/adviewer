@@ -8,6 +8,7 @@ from qtpy.QtCore import Qt, Signal
 import ophyd
 
 from . import discovery, graph
+from .utils import locked
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class DetectorModel(QtCore.QAbstractTableModel):
                             base_class=ophyd.DetectorBase):
         checked_components = {
             suffix: component
-            for suffix, component in self.components.items()
+            for suffix, component in sorted(self.components.items())
             if suffix in self.checked_components
         }
 
@@ -192,8 +193,76 @@ class DetectorModel(QtCore.QAbstractTableModel):
 class DetectorFromChannelAccessModel(DetectorModel):
     component_updated = Signal(str, object, dict)
 
+    @property
+    def pvlist(self):
+        return list(
+            sorted(
+                pv.pvname
+                for status in (self.cams, self.plugins)
+                for pv in status.pvs
+                if pv.connected
+            )
+        )
+
+    @locked
+    def _adcore_version_received(self):
+        for pending_plugin in list(self.pending_plugins):
+            self._plugin_callback(category=pending_plugin,
+                                  status=self.plugins)
+        self.pending_plugins.clear()
+
+    @locked
+    def _cam_callback(self, *, pv, category, status, **kwargs):
+        cam_info = dict(status.info[category])
+        if not all(key in cam_info for key in ('model', 'manufacturer', )):
+            return
+
+        try:
+            cls = discovery.get_cam_from_info(
+                manufacturer=cam_info['manufacturer'],
+                model=cam_info['model'],
+                adcore_version=cam_info.get('adcore_version', None),
+                driver_version=cam_info.get('driver_version', None),
+            )
+        except Exception as ex:
+            logger.debug('get_cam_from_info failed', exc_info=ex)
+            return
+
+        self.component_updated.emit(
+            category, cls, cam_info
+        )
+
+    @locked
+    def _plugin_callback(self, *, category, status, **kwargs):
+        if not self.adcore_version:
+            # no cams yet - so we don't have the core version
+            if category not in self.pending_plugins:
+                self.pending_plugins.append(category)
+            return
+        plugin_info = dict(status.info[category])
+        if 'plugin_type' not in plugin_info:
+            return
+
+        try:
+            cls = discovery.get_plugin_from_info(
+                adcore_version=self.adcore_version,
+                plugin_type=plugin_info['plugin_type']
+            )
+        except Exception as ex:
+            logger.error('get_plugin_from_info failed', exc_info=ex)
+            return
+
+        self.component_updated.emit(
+            category, cls, plugin_info
+        )
+
+
+class DetectorFromPrefixModel(DetectorFromChannelAccessModel):
     def __init__(self, prefix, **kwargs):
         super().__init__(**kwargs)
+
+        self.component_updated.connect(self._update_component)
+        self.have_adcore_version.connect(self._adcore_version_received)
 
         self.prefix = prefix
         self.lock = threading.RLock()
@@ -203,57 +272,35 @@ class DetectorFromChannelAccessModel(DetectorModel):
         self.plugins = discovery.find_plugins_over_channel_access(
             prefix, callback=self._plugin_callback)
 
+
+class DetectorFromPVListModel(DetectorFromChannelAccessModel):
+    def __init__(self, pvlist, **kwargs):
+        super().__init__(**kwargs)
+
+        self.full_pvlist = list(sorted(set(pvlist)))
+        self.lock = threading.RLock()
+        self.pending_plugins = []
         self.component_updated.connect(self._update_component)
         self.have_adcore_version.connect(self._adcore_version_received)
 
-    def _adcore_version_received(self):
-        with self.lock:
-            for pending_plugin in list(self.pending_plugins):
-                self._plugin_callback(category=pending_plugin)
-            self.pending_plugins.clear()
+        self.cams, self.plugins = discovery.cams_and_plugins_from_pvlist(
+            self.full_pvlist,
+            cam_callback=self._cam_callback,
+            plugin_callback=self._plugin_callback
+        )
+        self.prefix = self.cams.prefix
 
-    def _cam_callback(self, *, pv, category, **kwargs):
-        with self.lock:
-            cam_info = dict(self.cams.info[category])
-            if not all(key in cam_info for key in ('model', 'manufacturer', )):
-                return
-
-            try:
-                cls = discovery.get_cam_from_info(**cam_info)
-            except Exception as ex:
-                logger.debug('get_cam_from_info failed', exc_info=ex)
-                return
-
-            self.component_updated.emit(
-                category, cls, self.cams.info[category]
-            )
-
-    def _plugin_callback(self, *, category, **kwargs):
-        with self.lock:
-            if not self.adcore_version:
-                # no cams yet - so we don't have the core version
-                if category not in self.pending_plugins:
-                    self.pending_plugins.append(category)
-                return
-
-            try:
-                cls = discovery.get_plugin_from_info(
-                    adcore_version=self.adcore_version,
-                    **self.plugins.info[category]
-                )
-            except Exception as ex:
-                logger.error('get_plugin_from_info failed', exc_info=ex)
-                return
-
-            self.component_updated.emit(
-                category, cls, self.plugins.info[category]
-            )
+    @property
+    def pvlist(self):
+        return self.full_pvlist
 
 
 class DetectorView(QtWidgets.QTableView):
     def __init__(self, prefix, parent=None):
         super().__init__(parent=parent)
         self._prefix = None
+        self._pvlist = None
+        self._pvlist_key = None
         self.models = {}
 
         # Set the property last
@@ -261,6 +308,8 @@ class DetectorView(QtWidgets.QTableView):
 
     @property
     def model(self):
+        if self._pvlist_key:
+            return self.models.get(self._pvlist_key, None)
         return self.models.get(self._prefix, None)
 
     @property
@@ -272,12 +321,16 @@ class DetectorView(QtWidgets.QTableView):
         if prefix == self._prefix:
             return
 
+        logger.info('New prefix: %s', prefix)
         self._prefix = prefix
+        self._pvlist = None
+        self._pvlist_key = None
+
         if prefix:
             try:
                 model = self.models[prefix]
             except KeyError:
-                model = DetectorFromChannelAccessModel(prefix=prefix)
+                model = DetectorFromPrefixModel(prefix=prefix)
                 self.models[prefix] = model
 
             self.setModel(model)
@@ -289,11 +342,38 @@ class DetectorView(QtWidgets.QTableView):
 
     @property
     def pvlist(self):
-        ...
+        return self.model.pvlist
 
     @pvlist.setter
     def pvlist(self, pvlist):
-        ...
+        pvlist = list(sorted(set(pvlist)))
+        unique_id = '/'.join(pvlist)
+        pvlist_key = f'pvlist_{hash(unique_id)}'
+
+        if pvlist_key == self._pvlist_key:
+            return
+
+        self._pvlist = pvlist
+        self._pvlist_key = pvlist_key
+
+        try:
+            model = self.models[self._pvlist_key]
+        except KeyError:
+            model = DetectorFromPVListModel(pvlist=self._pvlist)
+            self.models[self._pvlist_key] = model
+
+        logger.info(
+            'New PV list (%d PVs) - searching for %d cam PVs, %d plugin PVs',
+            len(pvlist), len(model.cams.pvs), len(model.plugins.pvs)
+        )
+
+        self._prefix = model.prefix
+        self.setModel(model)
+
+        header = self.horizontalHeader()
+        for col in range(3):
+            header.setSectionResizeMode(
+                col, QtWidgets.QHeaderView.ResizeToContents)
 
 
 class DiscoveryWidget(QtWidgets.QFrame):
@@ -359,7 +439,8 @@ class DiscoveryWidget(QtWidgets.QFrame):
         with open(filename, 'rt') as f:
             pvlist = f.read().splitlines()
 
-        self.view.pvlist = pvlist
+        self.view.pvlist = list(sorted(set(pvlist)))
+        self.prefix_edit.setText(self.view.model.prefix)
 
     def save_pvlist(self, filename=None):
         if not filename:
@@ -377,7 +458,6 @@ class DiscoveryWidget(QtWidgets.QFrame):
 
     def prefix_changed(self):
         new_prefix = self.prefix_edit.text().strip()
-        logger.info('New prefix: %s', new_prefix)
         self.view.prefix = new_prefix
 
     def graph_open(self):
@@ -421,7 +501,7 @@ if __name__ == '__main__':
     logging.basicConfig()
     logger.setLevel('DEBUG')
     app = QtWidgets.QApplication(sys.argv)
-    w = DiscoveryWidget(prefix='13SIM1:')
+    w = DiscoveryWidget()  # prefix='13SIM1:')
     w.show()
     w.load_pvlist('simdet.pvlist')
     app.exec_()
