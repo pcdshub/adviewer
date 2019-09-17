@@ -150,12 +150,12 @@ class DetectorModel(QtCore.QAbstractTableModel):
                         )
 
         elif role == Qt.DisplayRole:
-            columns = {
-                0: suffix,
-                1: info['class_'].__name__,
-                2: info['info'],
-            }
-            return str(columns[column])
+            if column == 0:
+                return suffix
+            if column == 1:
+                return info['class_'].__name__
+            if column == 2:
+                return '/'.join(info['info'].values())
 
     def columnCount(self, index):
         return 3
