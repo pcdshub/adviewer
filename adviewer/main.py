@@ -3,7 +3,7 @@ import sys
 import threading
 
 from qtpy import QtCore, QtWidgets
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import Qt, Signal, QSortFilterProxyModel
 
 import ophyd
 
@@ -42,7 +42,8 @@ class DetectorModel(QtCore.QAbstractTableModel):
     def to_ophyd_class(self, class_name, *, base_class=ophyd.DetectorBase):
         class_dict = {}
 
-        for suffix, info in self.components.items():
+        for suffix, info in sorted(self.components.items(),
+                                   key=lambda item: item[0].lower()):
             if suffix in self.checked_components:
                 attr = discovery.category_to_identifier(suffix)
                 class_dict[attr] = ophyd.Component(info['class_'], suffix)
@@ -72,7 +73,9 @@ class DetectorModel(QtCore.QAbstractTableModel):
                           if cls not in cam_classes}
 
         cam_imports = ', '.join(sorted(cls.__name__ for cls in cam_classes))
+        yield f'from ophyd import Component as Cpt'
         yield f'from ophyd.areadetector.cam import ({cam_imports})'
+        yield f'from ophyd.areadetector.detectors import DetectorBase'
 
         plugin_imports = ', '.join(
             sorted(cls.__name__ for cls in plugin_classes))
@@ -90,14 +93,15 @@ class DetectorModel(QtCore.QAbstractTableModel):
         yield (f'class {class_name}({base_class.__name__}, '
                f'version={driver_version}):')
 
-        for suffix, info in checked_components.items():
+        for suffix, info in sorted(checked_components.items(),
+                                   key=lambda item: item[0].lower()):
             identifier = discovery.category_to_identifier(suffix)
             class_ = info['class_'].__name__
             yield f'    {identifier} = Cpt({class_}, {suffix!r})'
 
         yield ''
         yield ''
-        yield f'# det = {class_name}({prefix!r}, name="det")'
+        yield f'det = {class_name}({prefix!r}, name="det")'
 
     @property
     def adcore_version(self):
@@ -302,6 +306,11 @@ class DetectorView(QtWidgets.QTableView):
         self._pvlist = None
         self._pvlist_key = None
         self.models = {}
+        self.proxy_model = QSortFilterProxyModel()
+        self.proxy_model.setDynamicSortFilter(True)
+        self.proxy_model.setSortCaseSensitivity(False)
+        self.setModel(self.proxy_model)
+        self.setSortingEnabled(True)
 
         # Set the property last
         self.prefix = prefix
@@ -333,7 +342,7 @@ class DetectorView(QtWidgets.QTableView):
                 model = DetectorFromPrefixModel(prefix=prefix)
                 self.models[prefix] = model
 
-            self.setModel(model)
+            self.proxy_model.setSourceModel(model)
 
             header = self.horizontalHeader()
             for col in range(3):
@@ -368,7 +377,7 @@ class DetectorView(QtWidgets.QTableView):
         )
 
         self._prefix = model.prefix
-        self.setModel(model)
+        self.proxy_model.setSourceModel(model)
 
         header = self.horizontalHeader()
         for col in range(3):
