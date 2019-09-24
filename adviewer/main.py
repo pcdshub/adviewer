@@ -1,3 +1,4 @@
+import argparse
 import logging
 import sys
 import threading
@@ -506,11 +507,48 @@ class DiscoveryWidget(QtWidgets.QFrame):
         self._code_editor = editor
 
 
-if __name__ == '__main__':
+def _build_arg_parser():
+    parser = argparse.ArgumentParser()
+    parser.description = 'adviewer - AreaDetector configurator'
+
+    parser.add_argument(
+        'prefix',
+        type=str,
+        default='13SIM5:',
+        nargs='?',
+    )
+
+    parser.add_argument(
+        '--pvlist', '-p',
+        type=str,
+        default=None,
+    )
+
+    parser.add_argument(
+        '--log', '-l', dest='log_level',
+        default='DEBUG',
+        type=str,
+        help='Python logging level (e.g. DEBUG, INFO, WARNING)'
+    )
+
+    return parser
+
+
+def _entry_point():
+    parser = _build_arg_parser()
+    args = parser.parse_args()
+    return main(**vars(args))
+
+
+def main(prefix, pvlist=None, *, log_level='DEBUG'):
+    logger = logging.getLogger('pytmc')
+    logger.setLevel(log_level)
     logging.basicConfig()
-    logger.setLevel('DEBUG')
+
     app = QtWidgets.QApplication(sys.argv)
-    w = DiscoveryWidget()  # prefix='13SIM1:')
-    w.show()
-    w.load_pvlist('simdet.pvlist')
+    widget = DiscoveryWidget(prefix)
+    if pvlist is not None:
+        widget.load_pvlist(pvlist)
+
+    widget.show()
     app.exec_()

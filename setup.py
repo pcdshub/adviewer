@@ -55,9 +55,9 @@ setup(
     url='https://github.com/pcdshub/adviewer',
     entry_points={
         'console_scripts': [
-            # 'some.module:some_function',
-            ],
-        },
+            'adviewer = adviewer.main:_entry_point',
+        ],
+    },
     include_package_data=True,
     package_data={
         'adviewer': [
