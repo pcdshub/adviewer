@@ -250,11 +250,6 @@ class DeviceView(QtWidgets.QTableView):
 
             self.proxy_model.setSourceModel(model)
 
-            header = self.horizontalHeader()
-            for col in range(4):
-                header.setSectionResizeMode(
-                    col, QtWidgets.QHeaderView.ResizeToContents)
-
 
 class DeviceWidget(QtWidgets.QFrame):
     closed = Signal()
