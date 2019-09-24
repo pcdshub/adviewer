@@ -28,7 +28,8 @@ class PortTreeWidget(QtWidgets.QTreeWidget):
         self.headerItem().setHidden(True)
 
         def item_changed(current, previous):
-            self.port_selected.emit(str(current.text(0)))
+            if current is not None:
+                self.port_selected.emit(str(current.text(0)))
 
         self.currentItemChanged.connect(item_changed)
 
