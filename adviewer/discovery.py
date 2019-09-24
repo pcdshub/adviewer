@@ -384,24 +384,3 @@ def cams_and_plugins_from_pvlist(pvs, cam_callback, plugin_callback, *,
 
     plugins = connect_to_many(prefix, plugin_query, plugin_callback)
     return cams, plugins
-
-
-if __name__ == '__main__':
-    import sys
-    handler = logging.StreamHandler(sys.stdout)
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
-    logging.basicConfig()
-
-    # prefix = '13SIM1:'
-    # cams = find_cams_over_channel_access(prefix)
-    # plugins = find_plugins_over_channel_access(prefix)
-    # time.sleep(1.5)
-    # cls = create_detector_class(cams, plugins, default_core_version=(1, 9, 1))
-
-    def callback(*args, **kwargs):
-        # print('callback')
-        ...
-
-    pvlist = open('simdet.pvlist', 'rt').read().splitlines()
-    cams, plugins = cams_and_plugins_from_pvlist(pvlist, callback)
