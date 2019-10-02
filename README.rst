@@ -11,32 +11,25 @@ adviewer
 
 AreaDetector configurator and viewer
 
-Documentation
--------------
-
-Sphinx-generated documentation for this project can be found here:
-https://pcdshub.github.io/adviewer/
-
-
 Requirements
 ------------
 
-Describe the project requirements (i.e. Python version, packages and how to install them)
+* Python 3.6+
+* qtpy, PyQt5
+* qtpynodeeditor
 
-Installation
-------------
+Running adviewer
+----------------
 
-Describe the installation procedure
+```sh
+$ pip install git+https://github.com/pcdshub/adviewer
+$ adviewer --help
+$ adviewer 13SIM1:
+$ adviewer --pvlist filename.pvlist
+```
 
 Running the Tests
 -----------------
 ::
 
   $ python run_tests.py
-   
-Directory Structure
--------------------
-
-This repo is based the PCDS python cookiecutter. See the following github page for more info:
-
-- `cookiecutter-pcds-python <https://github.com/pcdshub/cookiecutter-pcds-python>`_
