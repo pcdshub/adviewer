@@ -17,6 +17,19 @@ def register_model(ophyd_class):
 
 
 def get_node_data_model(cls):
+    '''
+    Get the most specific node data model associated with the given class.
+
+    Returns
+    -------
+    cls
+        A subclass of `qtpynodeeditor.NodeDataModel`
+
+    Raises
+    ------
+    ValueError
+        If there are no appropriate matches
+    '''
     if not inspect.isclass(cls):
         cls = cls.__class__
 

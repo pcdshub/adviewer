@@ -1,4 +1,5 @@
 import collections
+import functools
 import logging
 
 import networkx
@@ -88,3 +89,16 @@ def position_nodes(edges, port_map, *, x_spacing, y_spacing, x=0, y=0):
             position_port(port, start_x, get_next_y())
 
     return positions
+
+
+def locked(func):
+    '''
+    Instance method decorator which wraps a method call in a `with self.lock`
+    block.
+    '''
+    @functools.wraps(func)
+    def wrapped(self, *args, **kwargs):
+        with self.lock:
+            return func(self, *args, **kwargs)
+
+    return wrapped

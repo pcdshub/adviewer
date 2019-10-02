@@ -1,8 +1,10 @@
 import distutils
 import logging
+import os
 import re
 import threading
 import time
+
 from functools import partial
 
 import epics
@@ -16,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 _RE_NONALPHA = re.compile('[^0-9a-zA-Z_]+')
+MIN_VERSION = '1.9.1'
+
 
 # semi-private dict in ophyd
 plugin_type_to_class = dict(areadetector.plugins._plugin_class)
@@ -100,6 +104,7 @@ def connect_to_many(prefix, pv_to_category_and_key, callback):
                      )
         for pv, (category, key) in pv_to_category_and_key.items()
     ]
+
     return status
 
 
@@ -146,6 +151,8 @@ def find_cams_over_channel_access(prefix, *, cam_re=r'cam\d:', max_count=2,
 
 def version_tuple_from_string(ver_string):
     'AD version string to tuple'
+    if ver_string is None:
+        raise ValueError('Version string cannot be None')
     return tuple(distutils.version.LooseVersion(ver_string).version)
 
 
@@ -158,7 +165,11 @@ def get_cam_from_info(manufacturer, model, *, adcore_version=None,
     cam_class = manufacturer_model_to_cam_class.get(
         (manufacturer, model), default_class)
 
+    if adcore_version is None:
+        adcore_version = MIN_VERSION
+
     adcore_version = version_tuple_from_string(adcore_version)
+
     if driver_version is not None:
         driver_version = version_tuple_from_string(driver_version)
     # TODO mix in new base components using adcore_version
@@ -307,21 +318,69 @@ def create_detector_class(
 
 
 def class_name_from_prefix(prefix):
+    '''
+    Create a Python identifier for the detector to be used as the class name
+    '''
     class_name = category_to_identifier(prefix).capitalize()
     if class_name.startswith('_'):
         return 'Detector' + class_name.lstrip('_').capitalize()
     return class_name
 
 
-if __name__ == '__main__':
-    import sys
-    handler = logging.StreamHandler(sys.stdout)
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
-    logging.basicConfig()
+def cams_and_plugins_from_pvlist(pvs, cam_callback, plugin_callback, *,
+                                 min_version=None):
+    '''
+    Given a list of PVs from an AreaDetector IOC, search for cameras and
+    plugins
+    '''
 
-    prefix = '13SIM1:'
-    cams = find_cams_over_channel_access(prefix)
-    plugins = find_plugins_over_channel_access(prefix)
-    time.sleep(1.5)
-    cls = create_detector_class(cams, plugins, default_core_version=(1, 9, 1))
+    if min_version is None:
+        min_version = MIN_VERSION
+
+    def matching_prefixes(suffix):
+        for pv in sorted(pvs):
+            if pv.endswith(suffix):
+                yield ':'.join(pv.split(':')[:-1]) + ':'
+
+    version_pv_found = False
+    cam_prefixes = list(matching_prefixes(':Manufacturer_RBV'))
+    plugin_prefixes = list(matching_prefixes(':PluginType_RBV'))
+    prefix = os.path.commonprefix(cam_prefixes + plugin_prefixes)
+
+    cam_query = {}
+
+    for idx, cam_prefix in enumerate(cam_prefixes, 1):
+        cam_category = cam_prefix[len(prefix):]
+        cam_query.update(
+            {f'{cam_prefix}{suffix}': (cam_category, key)
+             for suffix, key in (('Manufacturer_RBV', 'manufacturer'),
+                                 ('Model_RBV', 'model'),
+                                 ('PortName_RBV', 'port')
+                                 )
+             }
+        )
+        core_version_pv = f'{cam_prefix}ADCoreVersion_RBV'
+        if core_version_pv in pvs:
+            cam_query[core_version_pv] = (cam_category, 'adcore_version')
+            version_pv_found = True
+
+        version_pv = f'{cam_prefix}DriverVersion_RBV'
+        if version_pv in pvs:
+            cam_query[version_pv] = (cam_category, 'driver_version')
+
+    plugin_query = {
+        f'{plugin_prefix}PluginType_RBV': (plugin_prefix[len(prefix):],
+                                           'plugin_type')
+        for plugin_prefix in plugin_prefixes
+    }
+
+    cams = connect_to_many(prefix, cam_query, cam_callback)
+    if not version_pv_found:
+        # No ADCoreVersion found, assume the worst - R1-9-1
+        for key, info_dict in cams.info.items():
+            info_dict['adcore_version'] = min_version
+            cam_callback(pv=None, category=key, key='adcore_version',
+                         value=min_version, status=cams)
+
+    plugins = connect_to_many(prefix, plugin_query, plugin_callback)
+    return cams, plugins

@@ -1,8 +1,13 @@
 import logging
+import threading
 import time
 
 from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import QSortFilterProxyModel, Qt, QThread, Signal
+
+import numpy as np
+import ophyd
+import ophyd.device
 
 
 logger = logging.getLogger(__name__)
@@ -20,15 +25,32 @@ class _DevicePollThread(QThread):
     def run(self):
         self.running = True
         attrs = set(self.data)
+
+        # Instantiate all signals first
+        with ophyd.device.do_not_wait_for_lazy_connection(self.device):
+            for attr in list(attrs):
+                try:
+                    getattr(self.device, attr)
+                except Exception:
+                    logger.exception(
+                        'Poll thread for %s.%s @ %.3f sec failure '
+                        'on initial access',
+                        self.device.name, attr, self.poll_rate
+                    )
+                    attrs.remove(attr)
+
         while self.running:
             t0 = time.monotonic()
             for attr in list(attrs):
+                setpoint = None
                 try:
                     sig = getattr(self.device, attr)
-                    self.data[attr].update(
-                        readback=sig.get(),
-                        setpoint=getattr(sig, 'setpoint', ''),
-                    )
+
+                    if hasattr(sig, 'get_setpoint'):
+                        setpoint = sig.get_setpoint()
+                    elif hasattr(sig, 'setpoint'):
+                        setpoint = sig.setpoint
+                    readback = sig.get()
                 except Exception:
                     logger.exception(
                         'Poll thread for %s.%s @ %.3f sec failure',
@@ -36,10 +58,26 @@ class _DevicePollThread(QThread):
                     )
                     attrs.remove(attr)
                 else:
-                    self.data_changed.emit(attr)
+                    new_data = dict(
+                        readback=readback,
+                        setpoint=setpoint,
+                    )
+
+                    for key, value in new_data.items():
+                        old_value = self.data[attr][key]
+                        if value is None:
+                            ...
+                        elif (old_value is None or
+                                  np.any(old_value != value)):
+                            self.data[attr].update(**new_data)
+                            self.data_changed.emit(attr)
+                            break
 
             elapsed = time.monotonic() - t0
             time.sleep(max((0, self.poll_rate - elapsed)))
+
+
+COL_SETPOINT = 2
 
 
 class PolledDeviceModel(QtCore.QAbstractTableModel):
@@ -112,17 +150,51 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
             if orientation == Qt.Horizontal:
                 return self.horizontal_header[section]
 
+    def setData(self, index, value, role=Qt.EditRole):
+        row = index.row()
+        column = index.column()
+        attr, info = self._row_to_data(row)
+
+        if role != Qt.EditRole or column != COL_SETPOINT:
+            return False
+
+        attr, info = self._row_to_data(row)
+        obj = getattr(self._poll_thread.device, attr)
+
+        def set_thread():
+            try:
+                logger.debug('Setting %s = %r', obj.name, value)
+                st = obj.set(value)
+                ophyd.status.wait(st)
+            except Exception as ex:
+                logger.exception('Failed to set %s to %r', obj.name, value)
+            else:
+                logger.debug('Set complete: %s = %r (%s)', obj.name, value, st)
+
+        self._set_thread = threading.Thread(target=set_thread)
+        self._set_thread.start()
+        return True
+
+    def flags(self, index):
+        flags = super().flags(index)
+        if index.column() == COL_SETPOINT:
+            return flags | Qt.ItemIsEditable
+        return flags
+
     def data(self, index, role):
         row = index.row()
         column = index.column()
         attr, info = self._row_to_data(row)
+
+        if role == Qt.EditRole and column == COL_SETPOINT:
+            return info['setpoint']
 
         if role == Qt.DisplayRole:
             # value = attr
             columns = {
                 0: attr,
                 1: info['readback'],
-                2: info['setpoint'],
+                2: info['setpoint'] or '',
                 3: info['pvname'],
             }
             return str(columns[column])
@@ -178,17 +250,14 @@ class DeviceView(QtWidgets.QTableView):
 
             self.proxy_model.setSourceModel(model)
 
-            header = self.horizontalHeader()
-            for col in range(4):
-                header.setSectionResizeMode(
-                    col, QtWidgets.QHeaderView.ResizeToContents)
-
 
 class DeviceWidget(QtWidgets.QFrame):
     closed = Signal()
 
     def __init__(self, device, parent=None):
         super().__init__(parent=parent)
+
+        self.setWindowTitle(device.name)
 
         self.setMinimumSize(500, 400)
 
