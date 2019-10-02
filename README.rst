@@ -21,12 +21,15 @@ Requirements
 Running adviewer
 ----------------
 
-```sh
-$ pip install git+https://github.com/pcdshub/adviewer
-$ adviewer --help
-$ adviewer 13SIM1:
-$ adviewer --pvlist filename.pvlist
-```
+To install::
+
+        $ pip install git+https://github.com/pcdshub/adviewer
+        
+To run::
+
+        $ adviewer --help
+        $ adviewer 13SIM1:
+        $ adviewer --pvlist filename.pvlist
 
 Running the Tests
 -----------------
