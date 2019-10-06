@@ -1,17 +1,25 @@
 import asyncio
 import functools
 import logging
+import os
+import shlex
+import subprocess
 import threading
 
 from qtpy import QtCore, QtWidgets
 
 import qtpynodeeditor
-from ophyd import CamBase
+from ophyd import CamBase, ImagePlugin
 from typhon.utils import raise_to_operator
 
 from . import data_model, utils, device_model
 
 logger = logging.getLogger(__name__)
+
+IMAGE_VIEWER = os.environ.get(
+    'ADVIEWER_IMAGE_VIEWER',
+    'caproto-image-viewer --image {image} --cam {cam} {base}'
+)
 
 
 class PortTreeWidget(QtWidgets.QTreeWidget):
@@ -518,8 +526,28 @@ class PortGraphWindow(QtWidgets.QMainWindow):
             widget.show()
             widget.raise_()
 
+        def open_image_viewer():
+            plugin = self.monitor.port_map[port_name]
+            base = plugin.parent
+            image_prefix = plugin.prefix[len(base.prefix):]
+            cam = plugin._asyn_pipeline[0]
+            cam_prefix = cam.prefix[len(base.prefix):]
+            logger.debug('Full prefix: %s Base: %s Cam %s Image: %s',
+                         base.prefix, base.prefix, cam_prefix, image_prefix)
+            try:
+                command = IMAGE_VIEWER.format(
+                    base=base.prefix, image=image_prefix, cam=cam_prefix,
+                    prefix=plugin.prefix)
+                logger.info('Executing: %r', command)
+                subprocess.Popen(shlex.split(command))
+            except Exception as ex:
+                raise_to_operator(ex)
+
         menu = QtWidgets.QMenu()
         menu.addAction(f'Configure {port_name}...', open_config_widget)
+        if isinstance(self.monitor.port_map.get(port_name), ImagePlugin):
+            menu.addAction(f'Start image viewer...', open_image_viewer)
+
         menu.exec_(screen_pos)
 
     def _user_node_hovered(self, node, pos):
