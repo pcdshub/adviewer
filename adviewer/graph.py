@@ -2,6 +2,7 @@ import asyncio
 import functools
 import logging
 import os
+import pathlib
 import shlex
 import subprocess
 import threading
@@ -16,9 +17,10 @@ from . import data_model, utils, device_model
 
 logger = logging.getLogger(__name__)
 
+MODULE_PATH = pathlib.Path(__file__).parent
 IMAGE_VIEWER = os.environ.get(
     'ADVIEWER_IMAGE_VIEWER',
-    'caproto-image-viewer --image {image} --cam {cam} {base}'
+    f'pydm --macro IMAGE={{prefix}} {MODULE_PATH}/image_viewer.ui'
 )
 
 
