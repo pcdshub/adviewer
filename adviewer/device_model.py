@@ -173,13 +173,13 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
             try:
                 logger.debug('Setting %s = %r', obj.name, value)
                 st = obj.set(value)
-                ophyd.status.wait(st)
+                ophyd.status.wait(st, timeout=2)
             except Exception as ex:
                 logger.exception('Failed to set %s to %r', obj.name, value)
             else:
                 logger.debug('Set complete: %s = %r (%s)', obj.name, value, st)
 
-        self._set_thread = threading.Thread(target=set_thread)
+        self._set_thread = threading.Thread(target=set_thread, daemon=True)
         self._set_thread.start()
         return True
 
