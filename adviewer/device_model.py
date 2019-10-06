@@ -80,6 +80,30 @@ class _DevicePollThread(QThread):
 COL_SETPOINT = 2
 
 
+def _create_data_dict(device):
+    def create_data(attr):
+        inst = getattr(device, attr)
+        return dict(pvname=getattr(inst, 'pvname', '(Python)'),
+                    readback=None,
+                    setpoint=None,
+                    )
+
+    data = {
+        attr: create_data(attr)
+        for attr in device.component_names
+        if attr not in device._sub_devices
+    }
+
+    for sub_name in device._sub_devices:
+        sub_dev = getattr(device, sub_name)
+        sub_data = {f'{sub_name}.{key}': value
+                    for key, value in _create_data_dict(sub_dev).items()
+                    }
+        data.update(sub_data)
+
+    return data
+
+
 class PolledDeviceModel(QtCore.QAbstractTableModel):
     def __init__(self, device, *, poll_rate=1.0, parent=None, **kwargs):
         super().__init__(parent=parent, **kwargs)
@@ -88,7 +112,7 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         self._polling = False
         self.poll_thread = None
 
-        self._data = self._setup_data()
+        self._data = _create_data_dict(device)
         self.horizontal_header = [
             'Attribute', 'Readback', 'Setpoint', 'PV Name',
         ]
@@ -120,22 +144,6 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         self._poll_thread = None
         self._polling = False
 
-    def _setup_data(self):
-        device = self.device
-
-        def create_data(attr):
-            inst = getattr(device, attr)
-            return dict(pvname=getattr(inst, 'pvname', '(Python)'),
-                        readback=None,
-                        setpoint=None,
-                        )
-
-        return {
-            attr: create_data(attr)
-            for attr in device.component_names
-            if attr not in device._sub_devices
-        }
-
     def _row_to_data(self, row):
         'Returns (attr, data)'
         key = list(self._data)[row]
@@ -165,13 +173,13 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
             try:
                 logger.debug('Setting %s = %r', obj.name, value)
                 st = obj.set(value)
-                ophyd.status.wait(st)
+                ophyd.status.wait(st, timeout=2)
             except Exception as ex:
                 logger.exception('Failed to set %s to %r', obj.name, value)
             else:
                 logger.debug('Set complete: %s = %r (%s)', obj.name, value, st)
 
-        self._set_thread = threading.Thread(target=set_thread)
+        self._set_thread = threading.Thread(target=set_thread, daemon=True)
         self._set_thread.start()
         return True
 

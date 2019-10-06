@@ -541,7 +541,7 @@ def _entry_point():
 
 
 def main(prefix, pvlist=None, *, log_level='DEBUG'):
-    logger = logging.getLogger('pytmc')
+    logger = logging.getLogger('adviewer')
     logger.setLevel(log_level)
     logging.basicConfig()
 

@@ -1,17 +1,25 @@
 import asyncio
 import functools
 import logging
+import os
+import shlex
+import subprocess
 import threading
 
 from qtpy import QtCore, QtWidgets
 
 import qtpynodeeditor
-from ophyd import CamBase
+from ophyd import CamBase, ImagePlugin
 from typhon.utils import raise_to_operator
 
 from . import data_model, utils, device_model
 
 logger = logging.getLogger(__name__)
+
+IMAGE_VIEWER = os.environ.get(
+    'ADVIEWER_IMAGE_VIEWER',
+    'caproto-image-viewer --image {image} --cam {cam} {base}'
+)
 
 
 class PortTreeWidget(QtWidgets.QTreeWidget):
@@ -484,6 +492,9 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.chart.scene.node_hovered.connect(self._user_node_hovered)
         self.chart.flowchart_updated.connect(self.tree.update)
 
+        self.tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(
+            self._tree_context_menu)
         self.chart.scene.node_context_menu.connect(
             self._node_context_menu)
 
@@ -500,7 +511,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         self.chart.scene.clearSelection()
         self._user_node_hovered(node, pos=None)
 
-    def _node_context_menu(self, node, scene_pos, screen_pos):
+    def _context_menu_from_node(self, node):
         port_name = node.model.port_name
 
         def remove_widget():
@@ -518,8 +529,80 @@ class PortGraphWindow(QtWidgets.QMainWindow):
             widget.show()
             widget.raise_()
 
+        def open_image_viewer():
+            plugin = self.monitor.port_map[port_name]
+            base = plugin.parent
+            image_prefix = plugin.prefix[len(base.prefix):]
+            cam = plugin._asyn_pipeline[0]
+            cam_prefix = cam.prefix[len(base.prefix):]
+            logger.debug('Full prefix: %s Base: %s Cam %s Image: %s',
+                         base.prefix, base.prefix, cam_prefix, image_prefix)
+            try:
+                command = IMAGE_VIEWER.format(
+                    base=base.prefix, image=image_prefix, cam=cam_prefix,
+                    prefix=plugin.prefix)
+                logger.info('Executing: %r', command)
+                subprocess.Popen(shlex.split(command))
+            except Exception as ex:
+                raise_to_operator(ex)
+
+        def put(attr, value):
+            try:
+                signal = getattr(plugin, attr)
+                logger.info('%s.put(%s)', signal.name, value)
+                signal.put(value)
+            except Exception as ex:
+                raise_to_operator(ex)
+
+        def section_header(attr, text='<b>{attr}: {status}</b>'):
+            signal = getattr(plugin, attr)
+
+            try:
+                status = signal.get(as_string=True)
+            except Exception:
+                status = 'unknown'
+                logger.debug('Failed to get signal %s', signal, exc_info=True)
+
+            label = QtWidgets.QLabel(text.format(status=status, attr=attr))
+            label.setAlignment(QtCore.Qt.AlignCenter)
+            action = QtWidgets.QWidgetAction(menu)
+            action.setDefaultWidget(label)
+            menu.addSeparator()
+            menu.addAction(action)
+            return action, label
+
         menu = QtWidgets.QMenu()
         menu.addAction(f'Configure {port_name}...', open_config_widget)
+
+        plugin = self.monitor.port_map.get(port_name)
+        if hasattr(plugin, 'acquire'):
+            section_header('acquire')
+            menu.addAction(f'&Start', functools.partial(put, 'acquire', 1))
+            menu.addAction(f'S&top', functools.partial(put, 'acquire', 0))
+
+        if hasattr(plugin, 'enable'):
+            section_header('enable')
+            menu.addAction(f'&Enable', functools.partial(put, 'enable', 1))
+            menu.addAction(f'&Disable', functools.partial(put, 'enable', 0))
+
+        if isinstance(plugin, ImagePlugin):
+            menu.addSeparator()
+            menu.addAction(f'Start image viewer...', open_image_viewer)
+
+        return menu
+
+    def _tree_context_menu(self, pos):
+        try:
+            port_name = self.tree.itemAt(pos).text(0)
+        except Exception as ex:
+            return
+
+        node = self.chart.nodes[port_name]['node']
+        menu = self._context_menu_from_node(node)
+        menu.exec_(self.tree.mapToGlobal(pos))
+
+    def _node_context_menu(self, node, scene_pos, screen_pos):
+        menu = self._context_menu_from_node(node)
         menu.exec_(screen_pos)
 
     def _user_node_hovered(self, node, pos):
