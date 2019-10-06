@@ -60,11 +60,7 @@ setup(
     },
     include_package_data=True,
     package_data={
-        'adviewer': [
-            # When adding files here, remember to update MANIFEST.in as well,
-            # or else they will not be included in the distribution on PyPI!
-            # 'path/to/data_file',
-            ]
+        'adviewer': ['adviewer/image_viewer.ui']
         },
     install_requires=requirements,
     classifiers=[
