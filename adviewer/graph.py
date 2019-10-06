@@ -309,6 +309,7 @@ class PortGraphFlowchart(QtWidgets.QWidget):
             registry=self.registry, allow_node_deletion=False,
             allow_node_creation=False)
 
+        self._connected_by_user = {}
         self.scene.connection_created.connect(self._user_connected_nodes)
         self.scene.connection_deleted.connect(self._user_deleted_connection)
 
@@ -342,12 +343,15 @@ class PortGraphFlowchart(QtWidgets.QWidget):
     def _user_connected_nodes(self, conn):
         dest_node, src_node = conn.nodes
         src, dest = src_node.model.port_name, dest_node.model.port_name
-        if (src, dest) in self._edges:
+        edge = (src, dest)
+        if edge in self._edges:
             return
 
+        self._connected_by_user[edge] = conn
         try:
             self.monitor.set_new_source(src, dest)
         except Exception as ex:
+            self._connected_by_user.pop(edge)
             raise_to_operator(ex)
 
     @property
@@ -411,20 +415,25 @@ class PortGraphFlowchart(QtWidgets.QWidget):
                 logger.debug('Edge added to unknown port: %s -> %s', src, dest)
                 continue
 
+            if src_node == dest_node:
+                logger.debug('Cycle with node %s?', src_node)
+                continue
+
             self._edges.add((src, dest))
 
-            if src_node != dest_node:
-                try:
+            try:
+                connection = self._connected_by_user.pop((src, dest), None)
+                if connection is None:
                     connection = self.scene.create_connection(
                         src_node['output'][0],
                         dest_node['input'][0],
                     )
-                except Exception:
-                    logger.exception('Failed to connect terminals %s -> %s',
-                                     src, dest)
-                else:
-                    self._nodes[src]['connections'][dest] = connection
-                    self._nodes[dest]['connections'][src] = connection
+            except Exception:
+                logger.exception('Failed to connect terminals %s -> %s',
+                                 src, dest)
+            else:
+                self._nodes[src]['connections'][dest] = connection
+                self._nodes[dest]['connections'][src] = connection
 
         if self._auto_position or first_update:
             positions = utils.position_nodes(
