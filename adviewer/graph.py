@@ -446,15 +446,30 @@ class PortGraphFlowchart(QtWidgets.QWidget):
                 self._nodes[dest]['connections'][src] = connection
 
         if self._auto_position or first_update:
+            x_spacing = 150.0  # TODO less magic numbers
+            y_spacing = 100.0
             positions = utils.position_nodes(
                 self._edges, self.port_map,
-                x_spacing=150.0,  # TODO less magic numbers
-                y_spacing=100.0,
+                x_spacing=x_spacing,
+                y_spacing=y_spacing,
             )
             for port, (px, py) in positions.items():
                 node = self._nodes[port]['node']
                 node.graphics_object.setPos(QtCore.QPointF(px, py))
 
+            if first_update:
+                # on the first update, ensure that the scene rectangle is set
+                # to fit all nodes
+                x_positions = [px for px, py in positions.values()]
+                y_positions = [py for px, py in positions.values()]
+                min_x, max_x = min(x_positions), max(x_positions)
+                min_y, max_y = min(y_positions), max(y_positions)
+                scene_rect = QtCore.QRectF(min_x - x_spacing,
+                                           min_y - y_spacing,
+                                           max_x - min_x + x_spacing,
+                                           max_y - min_y + y_spacing)
+                self.view.setSceneRect(scene_rect)
+                self.view.fitInView(scene_rect, QtCore.Qt.KeepAspectRatio)
         self.flowchart_updated.emit()
 
     def add_port(self, name, plugin, pos=None):
@@ -509,8 +524,8 @@ class PortGraphWindow(QtWidgets.QMainWindow):
         except KeyError:
             return
 
-        self.chart.view.centerOn(node.graphics_object)
         self.chart.scene.clearSelection()
+        self.chart.view.centerOn(node.graphics_object)
         self._user_node_hovered(node, pos=None)
 
     def _context_menu_from_node(self, node):
@@ -596,7 +611,7 @@ class PortGraphWindow(QtWidgets.QMainWindow):
     def _tree_context_menu(self, pos):
         try:
             port_name = self.tree.itemAt(pos).text(0)
-        except Exception as ex:
+        except Exception:
             return
 
         node = self.chart.nodes[port_name]['node']
