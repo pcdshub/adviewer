@@ -119,6 +119,8 @@ def _create_data_dict(device):
         sub_data = {f'{sub_name}.{key}': value
                     for key, value in _create_data_dict(sub_dev).items()
                     }
+        for key, value in sub_data.items():
+            value['attr'] = key
         data.update(sub_data)
 
     return data
