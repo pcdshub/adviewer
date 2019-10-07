@@ -57,21 +57,26 @@ class _DevicePollThread(QThread):
                         self.device.name, attr, self.poll_rate
                     )
                     attrs.remove(attr)
-                else:
-                    new_data = dict(
-                        readback=readback,
-                        setpoint=setpoint,
-                    )
+                    continue
 
-                    for key, value in new_data.items():
-                        old_value = self.data[attr][key]
-                        if value is None:
-                            ...
-                        elif (old_value is None or
-                                  np.any(old_value != value)):
-                            self.data[attr].update(**new_data)
-                            self.data_changed.emit(attr)
-                            break
+                new_data = {}
+                if readback is not None:
+                    new_data['readback'] = readback
+                if setpoint is not None:
+                    new_data['setpoint'] = setpoint
+
+                for key, value in new_data.items():
+                    old_value = self.data[attr][key]
+
+                    try:
+                        changed = np.any(old_value != value)
+                    except Exception:
+                        ...
+
+                    if changed or old_value is None:
+                        self.data[attr].update(**new_data)
+                        self.data_changed.emit(attr)
+                        break
 
             elapsed = time.monotonic() - t0
             time.sleep(max((0, self.poll_rate - elapsed)))
