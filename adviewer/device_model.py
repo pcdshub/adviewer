@@ -43,8 +43,12 @@ class _DevicePollThread(QThread):
             t0 = time.monotonic()
             for attr in list(attrs):
                 setpoint = None
+                data = self.data[attr]
                 try:
                     sig = getattr(self.device, attr)
+
+                    if not data['description']:
+                        data['description'] = sig.describe()[sig.name]
 
                     if hasattr(sig, 'get_setpoint'):
                         setpoint = sig.get_setpoint()
@@ -59,14 +63,15 @@ class _DevicePollThread(QThread):
                     attrs.remove(attr)
                     continue
 
+                units = data['description'].get('units', '') or ''
                 new_data = {}
                 if readback is not None:
-                    new_data['readback'] = readback
+                    new_data['readback'] = f'{readback} {units}'
                 if setpoint is not None:
                     new_data['setpoint'] = setpoint
 
                 for key, value in new_data.items():
-                    old_value = self.data[attr][key]
+                    old_value = [key]
 
                     try:
                         changed = np.any(old_value != value)
@@ -74,7 +79,7 @@ class _DevicePollThread(QThread):
                         ...
 
                     if changed or old_value is None:
-                        self.data[attr].update(**new_data)
+                        data.update(**new_data)
                         self.data_changed.emit(attr)
                         break
 
@@ -88,8 +93,11 @@ COL_SETPOINT = 2
 def _create_data_dict(device):
     def create_data(attr):
         inst = getattr(device, attr)
+        cpt = getattr(type(device), attr)
         read_only = isinstance(inst, (ophyd.EpicsSignalRO, ))
         return dict(attr=attr,
+                    description=None,
+                    docstring=cpt.doc,
                     pvname=getattr(inst, 'pvname', '(Python)'),
                     read_only=read_only,
                     readback=None,
@@ -214,6 +222,10 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
                 3: info['pvname'],
             }
             return str(columns[column])
+
+        if role == Qt.ToolTipRole:
+            if column in (0, ):
+                return info['docstring']
 
     def columnCount(self, index):
         return 4
