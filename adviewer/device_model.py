@@ -43,8 +43,12 @@ class _DevicePollThread(QThread):
             t0 = time.monotonic()
             for attr in list(attrs):
                 setpoint = None
+                data = self.data[attr]
                 try:
                     sig = getattr(self.device, attr)
+
+                    if not data['description']:
+                        data['description'] = sig.describe()[sig.name]
 
                     if hasattr(sig, 'get_setpoint'):
                         setpoint = sig.get_setpoint()
@@ -57,35 +61,51 @@ class _DevicePollThread(QThread):
                         self.device.name, attr, self.poll_rate
                     )
                     attrs.remove(attr)
-                else:
-                    new_data = dict(
-                        readback=readback,
-                        setpoint=setpoint,
-                    )
+                    continue
 
-                    for key, value in new_data.items():
-                        old_value = self.data[attr][key]
-                        if value is None:
-                            ...
-                        elif (old_value is None or
-                                  np.any(old_value != value)):
-                            self.data[attr].update(**new_data)
-                            self.data_changed.emit(attr)
-                            break
+                units = data['description'].get('units', '') or ''
+                new_data = {}
+                if readback is not None:
+                    new_data['readback'] = f'{readback} {units}'
+                if setpoint is not None:
+                    new_data['setpoint'] = setpoint
+
+                for key, value in new_data.items():
+                    old_value = [key]
+
+                    try:
+                        changed = np.any(old_value != value)
+                    except Exception:
+                        ...
+
+                    if changed or old_value is None:
+                        data.update(**new_data)
+                        self.data_changed.emit(attr)
+                        break
 
             elapsed = time.monotonic() - t0
             time.sleep(max((0, self.poll_rate - elapsed)))
 
 
+COL_ATTR = 0
+COL_READBACK = 1
 COL_SETPOINT = 2
+COL_PVNAME = 3
 
 
 def _create_data_dict(device):
     def create_data(attr):
         inst = getattr(device, attr)
-        return dict(pvname=getattr(inst, 'pvname', '(Python)'),
+        cpt = getattr(type(device), attr)
+        read_only = isinstance(inst, (ophyd.EpicsSignalRO, ))
+        return dict(attr=attr,
+                    description=None,
+                    docstring=cpt.doc,
+                    pvname=getattr(inst, 'pvname', '(Python)'),
+                    read_only=read_only,
                     readback=None,
                     setpoint=None,
+                    signal=inst,
                     )
 
     data = {
@@ -113,6 +133,10 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         self.poll_thread = None
 
         self._data = _create_data_dict(device)
+        self._row_to_data = {
+            row: data
+            for row, (key, data) in enumerate(sorted(self._data.items()))
+        }
         self.horizontal_header = [
             'Attribute', 'Readback', 'Setpoint', 'PV Name',
         ]
@@ -144,11 +168,6 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         self._poll_thread = None
         self._polling = False
 
-    def _row_to_data(self, row):
-        'Returns (attr, data)'
-        key = list(self._data)[row]
-        return (key, self._data[key])
-
     def hasChildren(self, index):
         # TODO sub-devices?
         return False
@@ -161,23 +180,19 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
     def setData(self, index, value, role=Qt.EditRole):
         row = index.row()
         column = index.column()
-        attr, info = self._row_to_data(row)
+        info = self._row_to_data[row]
 
         if role != Qt.EditRole or column != COL_SETPOINT:
             return False
 
-        attr, info = self._row_to_data(row)
-        obj = getattr(self._poll_thread.device, attr)
+        obj = info['signal']
 
         def set_thread():
             try:
                 logger.debug('Setting %s = %r', obj.name, value)
-                st = obj.set(value)
-                ophyd.status.wait(st, timeout=2)
-            except Exception as ex:
+                obj.put(value, wait=False)
+            except Exception:
                 logger.exception('Failed to set %s to %r', obj.name, value)
-            else:
-                logger.debug('Set complete: %s = %r (%s)', obj.name, value, st)
 
         self._set_thread = threading.Thread(target=set_thread, daemon=True)
         self._set_thread.start()
@@ -185,14 +200,18 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
 
     def flags(self, index):
         flags = super().flags(index)
+
+        row = index.row()
         if index.column() == COL_SETPOINT:
-            return flags | Qt.ItemIsEditable
+            info = self._row_to_data[row]
+            if not info['read_only']:
+                return flags | Qt.ItemIsEnabled | Qt.ItemIsEditable
         return flags
 
     def data(self, index, role):
         row = index.row()
         column = index.column()
-        attr, info = self._row_to_data(row)
+        info = self._row_to_data[row]
 
         if role == Qt.EditRole and column == COL_SETPOINT:
             return info['setpoint']
@@ -200,12 +219,25 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         if role == Qt.DisplayRole:
             # value = attr
             columns = {
-                0: attr,
+                0: info['attr'],
                 1: info['readback'],
                 2: info['setpoint'] or '',
                 3: info['pvname'],
             }
             return str(columns[column])
+
+        if role == Qt.ToolTipRole:
+            if column in (0, ):
+                return info['docstring']
+            if column in (COL_READBACK, COL_SETPOINT):
+                desc = info['description']
+                enum_strings = desc.get('enum_strs')
+                if not enum_strings:
+                    return
+                return '\n'.join(f'{idx}: {item!r}'
+                                 for idx, item in enumerate(enum_strings)
+                                 )
+
 
     def columnCount(self, index):
         return 4
