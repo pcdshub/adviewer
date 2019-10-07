@@ -87,7 +87,10 @@ class _DevicePollThread(QThread):
             time.sleep(max((0, self.poll_rate - elapsed)))
 
 
+COL_ATTR = 0
+COL_READBACK = 1
 COL_SETPOINT = 2
+COL_PVNAME = 3
 
 
 def _create_data_dict(device):
@@ -226,6 +229,15 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         if role == Qt.ToolTipRole:
             if column in (0, ):
                 return info['docstring']
+            if column in (COL_READBACK, COL_SETPOINT):
+                desc = info['description']
+                enum_strings = desc.get('enum_strs')
+                if not enum_strings:
+                    return
+                return '\n'.join(f'{idx}: {item!r}'
+                                 for idx, item in enumerate(enum_strings)
+                                 )
+
 
     def columnCount(self, index):
         return 4
