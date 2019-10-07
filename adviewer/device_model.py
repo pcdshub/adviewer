@@ -63,15 +63,15 @@ class _DevicePollThread(QThread):
                     attrs.remove(attr)
                     continue
 
-                units = data['description'].get('units', '') or ''
                 new_data = {}
                 if readback is not None:
+                    units = data['description'].get('units', '') or ''
                     new_data['readback'] = f'{readback} {units}'
                 if setpoint is not None:
                     new_data['setpoint'] = setpoint
 
                 for key, value in new_data.items():
-                    old_value = [key]
+                    old_value = data[key]
 
                     try:
                         changed = np.any(old_value != value)
@@ -239,7 +239,6 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
                 return '\n'.join(f'{idx}: {item!r}'
                                  for idx, item in enumerate(enum_strings)
                                  )
-
 
     def columnCount(self, index):
         return 4
