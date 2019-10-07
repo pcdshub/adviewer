@@ -88,9 +88,13 @@ COL_SETPOINT = 2
 def _create_data_dict(device):
     def create_data(attr):
         inst = getattr(device, attr)
-        return dict(pvname=getattr(inst, 'pvname', '(Python)'),
+        read_only = isinstance(inst, (ophyd.EpicsSignalRO, ))
+        return dict(attr=attr,
+                    pvname=getattr(inst, 'pvname', '(Python)'),
+                    read_only=read_only,
                     readback=None,
                     setpoint=None,
+                    signal=inst,
                     )
 
     data = {
@@ -118,6 +122,10 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         self.poll_thread = None
 
         self._data = _create_data_dict(device)
+        self._row_to_data = {
+            row: data
+            for row, (key, data) in enumerate(sorted(self._data.items()))
+        }
         self.horizontal_header = [
             'Attribute', 'Readback', 'Setpoint', 'PV Name',
         ]
@@ -149,11 +157,6 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         self._poll_thread = None
         self._polling = False
 
-    def _row_to_data(self, row):
-        'Returns (attr, data)'
-        key = list(self._data)[row]
-        return (key, self._data[key])
-
     def hasChildren(self, index):
         # TODO sub-devices?
         return False
@@ -166,13 +169,12 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
     def setData(self, index, value, role=Qt.EditRole):
         row = index.row()
         column = index.column()
-        attr, info = self._row_to_data(row)
+        info = self._row_to_data[row]
 
         if role != Qt.EditRole or column != COL_SETPOINT:
             return False
 
-        attr, info = self._row_to_data(row)
-        obj = getattr(self._poll_thread.device, attr)
+        obj = info['signal']
 
         def set_thread():
             try:
@@ -187,14 +189,18 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
 
     def flags(self, index):
         flags = super().flags(index)
+
+        row = index.row()
         if index.column() == COL_SETPOINT:
-            return flags | Qt.ItemIsEditable
+            info = self._row_to_data[row]
+            if not info['read_only']:
+                return flags | Qt.ItemIsEnabled | Qt.ItemIsEditable
         return flags
 
     def data(self, index, role):
         row = index.row()
         column = index.column()
-        attr, info = self._row_to_data(row)
+        info = self._row_to_data[row]
 
         if role == Qt.EditRole and column == COL_SETPOINT:
             return info['setpoint']
@@ -202,7 +208,7 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
         if role == Qt.DisplayRole:
             # value = attr
             columns = {
-                0: attr,
+                0: info['attr'],
                 1: info['readback'],
                 2: info['setpoint'] or '',
                 3: info['pvname'],
