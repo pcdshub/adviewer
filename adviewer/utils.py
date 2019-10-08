@@ -1,10 +1,14 @@
 import collections
 import functools
+import io
 import logging
+import traceback
 
 import networkx
 
 from ophyd import CamBase
+from qtpy import QtWidgets
+
 
 logger = logging.getLogger(__name__)
 
@@ -102,3 +106,34 @@ def locked(func):
             return func(self, *args, **kwargs)
 
     return wrapped
+
+
+def raise_to_operator(exc, execute=True):
+    """
+    Utility function to show a Python Exception in QMessageBox The type and
+    representation of the Exception are shown in a pop-up QMessageBox. The
+    entire traceback is available via a drop-down detailed text box in the
+    QMessageBox
+
+    Parameters
+    ----------
+    exc: Exception
+    execute: bool, optional
+        Whether to execute the QMessageBox
+    """
+    # Assemble QMessageBox with Exception details
+    err_msg = QtWidgets.QMessageBox()
+    err_msg.setText(f'{exc.__class__.__name__}: {exc}')
+    err_msg.setWindowTitle(type(exc).__name__)
+    err_msg.setIcon(QtWidgets.QMessageBox.Critical)
+
+    # Format traceback as detailed text
+    with io.StringIO() as handle:
+        traceback.print_tb(exc.__traceback__, file=handle)
+        handle.seek(0)
+        err_msg.setDetailedText(handle.read())
+
+    if execute:
+        # Execute
+        err_msg.exec_()
+    return err_msg

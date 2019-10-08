@@ -11,8 +11,8 @@ from qtpy import QtCore, QtWidgets
 
 import qtpynodeeditor
 from ophyd import CamBase, ImagePlugin
-from typhon.utils import raise_to_operator
 
+from .utils import raise_to_operator
 from . import data_model, utils, device_model
 
 logger = logging.getLogger(__name__)

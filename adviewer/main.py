@@ -514,7 +514,7 @@ def _build_arg_parser():
     parser.add_argument(
         'prefix',
         type=str,
-        default='13SIM5:',
+        default='13SIM1:',
         nargs='?',
     )
 
