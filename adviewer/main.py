@@ -309,7 +309,7 @@ class DetectorView(QtWidgets.QTableView):
         self.models = {}
         self.proxy_model = QSortFilterProxyModel()
         self.proxy_model.setDynamicSortFilter(True)
-        self.proxy_model.setSortCaseSensitivity(False)
+        self.proxy_model.setSortCaseSensitivity(QtCore.Qt.CaseInsensitive)
         self.setModel(self.proxy_model)
         self.setSortingEnabled(True)
 
