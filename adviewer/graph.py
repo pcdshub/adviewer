@@ -89,7 +89,7 @@ class PortTreeWidget(QtWidgets.QTreeWidget):
             old_parent = dest_item.parent()
             if old_parent is not None:
                 old_parent.removeChild(dest_item)
-            if src_item != dest_item:
+            if src != dest:
                 src_item.addChild(dest_item)
 
         for item in self.port_to_item.values():

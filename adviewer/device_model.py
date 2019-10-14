@@ -219,11 +219,13 @@ class PolledDeviceModel(QtCore.QAbstractTableModel):
             return info['setpoint']
 
         if role == Qt.DisplayRole:
-            # value = attr
+            setpoint = info['setpoint']
+            if setpoint is None or np.size(setpoint) == 0:
+                setpoint = ''
             columns = {
                 0: info['attr'],
                 1: info['readback'],
-                2: info['setpoint'] or '',
+                2: setpoint,
                 3: info['pvname'],
             }
             return str(columns[column])
